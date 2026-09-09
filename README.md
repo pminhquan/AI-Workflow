@@ -24,6 +24,7 @@ In this framework:
 │   ├── AGENT_RULES.md               # Global governing rules, operational constraints, and boundaries
 │   ├── TASK_TEMPLATE.md             # Standardized contract for task specification and handover
 │   ├── QUICK_TASK_TEMPLATE.md       # Compact daily-use task template with automatic derivations
+│   ├── TASK_CLASSIFICATION.md       # Deterministic task categories, inference rules, and escalation policy
 │   ├── TEST_POLICY.md               # Tiered testing model (Tier 0 to Tier 4) and verification gates
 │   ├── GIT_POLICY.md                # Explicit Git rules, human-only operations, and branch lifecycle
 │   └── PROJECT_CONTEXT_TEMPLATE.md  # Template for project-specific stack, architecture, and constraints
@@ -59,25 +60,26 @@ In this framework:
 
 ## Quick Task Format (Daily Use)
 
-For daily workflow tasks, use `core/QUICK_TASK_TEMPLATE.md` to minimize input overhead. The human provides only four required fields (and optional allowlist/constraints); the workflow automatically derives remaining execution parameters:
+For routine daily workflow tasks, use `core/QUICK_TASK_TEMPLATE.md` to minimize input overhead. The human provides only two required fields (with optional overrides); the workflow deterministically classifies the task and derives remaining execution parameters:
 
 ```text
-MODE: [AUDIT | IMPLEMENT | REVIEW | DEBUG | RELEASE_CHECK]
-PROJECT: [Project Name or Path]
-GOAL: [Clear statement of the objective]
-RISK: [Low | Medium | High | Critical] - [Brief risk rationale]
+PROJECT: <path>
+TASK: <goal>
+RISK: [Optional: Low | Medium | High | Critical]
 ALLOWLIST: [Optional: permitted file paths or glob patterns]
-CONSTRAINTS: [Optional: specific constraints or boundaries]
+CONSTRAINTS: [Optional: specific boundaries or non-goals]
 ```
 
-- **Automated Derivations**: The workflow automatically derives agents (`agents/`), skills (`skills/`), test tier (`core/TEST_POLICY.md`), verification rules, and Git policy (`core/GIT_POLICY.md`).
-- **Safety Invariants Preserved**: Strictly preserves no auto commit, no auto push, the human Git boundary, and the mandatory repository verification gate (`git status --short`, `git diff --name-only`, `git diff --check`).
+- **Deterministic Classification (`core/TASK_CLASSIFICATION.md`)**: Automatically maps the task into one of 10 categories (`UI`, `BACKEND_LOGIC`, `DATABASE`, `AUTH_SECURITY`, `UPLOAD_FILE`, `TESTING`, `DEBUG`, `DOCUMENTATION`, `RELEASE`, `MIXED`) via normalized keyword and path signatures.
+- **Automated Parameter Derivations**: Infers default `MODE`, default `RISK`, recommended agents (`agents/`), recommended skills (`skills/`), and default test tier (`core/TEST_POLICY.md`) as provisional context. For `MIXED`, recommended skills resolve to the union of matched category skills (`frontend`, `java-web`, `python`, `database`, `release`).
+- **Precedence & Escalation**: Explicit inputs always override inferred values. Cross-domain overlaps resolve to `MIXED`. Ambiguous, contradictory, unknown-scope, or High/Critical-risk tasks (including high-risk categories `DATABASE`, `AUTH_SECURITY`, `UPLOAD_FILE`, `RELEASE`, `MIXED`) produce an explicit `ESCALATE` outcome and halt for human clarification/confirmation (never guessing or defaulting to MODE AUDIT). When classification returns `ESCALATE`, the standard response uses `STATUS: BLOCKED` and `NEXT` requests human clarification or confirmation.
+- **Safety Invariants Preserved**: Classification NEVER grants permission for `git add`, `git commit`, `git push`, `git tag`, deploy actions, or destructive database operations (`DROP TABLE`, `TRUNCATE`, destructive migrations). Strictly preserves the human Git boundary and the mandatory repository verification gate (`git status --short`, `git diff --name-only`, `git diff --check`).
 
 ## Standard Output Format
 
 All AI responses must conclude with or conform to the standard output format:
 ```text
-STATUS: <COMPLETED | IN_PROGRESS | BLOCKED | FAILED>
+STATUS: <COMPLETED | IN_PROGRESS | WARNING | BLOCKED | FAILED>
 CHANGED: <Comma-separated list of modified files, or NONE>
 TEST: <Executed test commands and summary of results (e.g., PASS: 4, FAIL: 0)>
 RISK: <Identified risks, regressions, or assumptions>
@@ -86,11 +88,11 @@ NEXT: <Recommended next action for human or next task phase>
 
 ## Basic Usage
 
-1. **Define & Load Project Context**: Copy `core/PROJECT_CONTEXT_TEMPLATE.md` to `.ai/CONTEXT.md` in the target project. Run the context loader to inspect context and suggested skills:
+1. **Define & Load Project Context (Optional)**: If desired, copy `core/PROJECT_CONTEXT_TEMPLATE.md` to `.ai/CONTEXT.md` in the target project to document stack details (repository context is optional; no AI-specific project assumptions are made). Run the context loader to inspect context and suggested skills:
    ```powershell
    ./scripts/load-context.ps1 -ProjectPath "/path/to/project"
    ```
-2. **Define the Task**: Choose either the compact daily-use format in `core/QUICK_TASK_TEMPLATE.md` (requires only `MODE`, `PROJECT`, `GOAL`, `RISK` with automatic derivations) or the full contract in `core/TASK_TEMPLATE.md`.
+2. **Define the Task**: Choose either the compact daily-use format in `core/QUICK_TASK_TEMPLATE.md` (minimal quick input with deterministic inference and escalation via `core/TASK_CLASSIFICATION.md`) or the full contract in `core/TASK_TEMPLATE.md`.
 3. **Select Mode Prompt**: Use the corresponding prompt in `prompts/` (e.g., `prompts/implement.md`) along with the filled task template.
 4. **Inspect First**: The AI reads relevant files, verifies existing behavior, and confirms understandability before touching code.
 5. **Execute & Test**: Make minimal targeted changes strictly inside the `ALLOWLIST`. Execute the required test tier from `core/TEST_POLICY.md`.
