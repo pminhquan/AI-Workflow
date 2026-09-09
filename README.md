@@ -159,9 +159,12 @@ Use workflow validation scripts:
 
 ```text
 scripts/
-├── git-check.ps1
+├── bridge-check.ps1
 ├── diff-check.ps1
+├── git-check.ps1
+├── load-context.ps1
 ├── release-check.ps1
+├── start-antigravity.ps1
 └── workflow-check.ps1
 ```
 
@@ -171,6 +174,7 @@ These scripts verify:
 - modification boundaries
 - release readiness
 - workflow integrity
+- bridge readiness
 
 ---
 
@@ -185,6 +189,33 @@ The human engineer performs:
 - release decisions
 
 AI agents must not perform automatic Git mutations.
+
+---
+
+## Before delegating tasks
+
+Before delegating tasks to Codex or Antigravity, ensure the bridge session is active, healthy, and verified:
+
+1. **Launch or verify Antigravity bridge**:
+   ```powershell
+   .\scripts\start-antigravity.ps1
+   ```
+   This ensures `Antigravity.exe` is running with `--remote-debugging-port=9222` and waits until TCP port 9222 is listening without altering the installation.
+
+2. **Verify bridge readiness**:
+   ```powershell
+   .\scripts\bridge-check.ps1
+   ```
+   Confirm that the check outputs `STATUS: PASS (READY)`.
+
+3. **Submit jobs**:
+   Submit tasks or delegate jobs only after verifying bridge `PASS`.
+   Per `core/BRIDGE_POLICY.md`, job submission is prohibited when the bridge is in a `FAILED` or `STALE` state.
+
+4. **Bridge Recovery**:
+   If the bridge check fails or returns warnings, follow the recovery procedures and fresh-Codex-session recovery steps defined in `core/BRIDGE_POLICY.md`:
+   - If `FAILED`: run `.\scripts\start-antigravity.ps1` to ensure port 9222 is open, then re-check with `.\scripts\bridge-check.ps1`.
+   - If `STALE`: reset or restart the session and verify readiness before submitting jobs.
 
 ---
 
@@ -231,3 +262,43 @@ None
 WARN:
 None
 ```
+
+---
+
+## Pre-Release Gate Check
+
+Run:
+
+```powershell
+./scripts/release-check.ps1 -SafeMode
+```
+
+For release candidate gate verification:
+
+```powershell
+.\scripts\release-check.ps1 -RepoPath "<project-path>" `
+    -RequireClean `
+    -RequireBranch "main" `
+    -TestTier 4 `
+    -TestEvidence "PASS (all tests passed)" `
+    -ArtifactPath "dist/app.jar" `
+    -SmokeEvidence "PASS (smoke verified)"
+```
+
+The release check enforces:
+
+- `GIT_VALIDATION`: repository validity, target commit SHA, branch match, clean working tree, and detection of unexpected untracked release files/binaries with exit code checks.
+- `BUILD_VALIDATION`: build tool and wrapper availability (Maven wrapper `mvnw`); validates build execution only when explicitly requested via `-ValidateBuild` with verifiable `-BuildEvidence` (fails closed if absent).
+- `TEST_VALIDATION`: enforces declared `TestTier` (Tier 0 to 4) and distinguishes `SKIPPED` from `PASSED`.
+- `ARTIFACT_VALIDATION`: validates explicit artifact path, regular file existence, supported format, non-zero size, and SHA-256 checksum.
+- `RUNTIME_VALIDATION`: verifies smoke test evidence; normal release gates block (`exit 1`) when runtime is `UNVERIFIED` (SafeMode remains non-blocking without claiming all gates passed).
+
+Output sections:
+
+```text
+SOURCE_VALIDATION: PASS | FAIL
+ARTIFACT_VALIDATION: PASS | FAIL
+RUNTIME_VALIDATION: VERIFIED | UNVERIFIED
+```
+
+Final release decisions, Git tagging, and production deployments remain exclusively the human engineer's responsibility.
