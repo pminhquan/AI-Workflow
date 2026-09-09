@@ -13,6 +13,7 @@ AI agents are strictly forbidden from performing the following actions:
 4. **No Speculative Abstractions**: Never introduce unrequested abstractions, unneeded design patterns, superfluous wrapper layers, or unsolicited refactoring.
 5. **No Unrequested Dependencies**: Never add third-party libraries or external packages when standard libraries or existing project utilities suffice.
 6. **No Secret or Credential Leakage**: Never write passwords, API keys, tokens, credentials, or personal system paths into code, documentation, or configuration.
+7. **No Unverified Change Claims**: Never claim 'No files changed' without checking the target repository via repository-state commands (`git status --short`, `git diff --name-only`).
 
 ## 3. Core Operational Principles
 1. **Inspect Before Editing**:
@@ -27,6 +28,11 @@ AI agents are strictly forbidden from performing the following actions:
 4. **Verification Requirement**:
    - Non-trivial code changes must be verified against the project test policy before marking completion.
    - Provide concrete, reproducible test results or verification evidence.
+5. **Mandatory Final Repository-State Gate**:
+   - Before returning `STATUS`, always run `git status --short`, `git diff --name-only`, and `git diff --check`.
+   - Actual workspace state is the authoritative source of truth, with priority: `actual workspace > git diff > worker artifacts`.
+   - Never claim 'No files changed' without checking the target repository.
+   - When worker artifacts and repository state differ, return `STATUS: WARNING` (not BLOCKED) and include artifact state, actual git state, and recommended action.
 
 ## 4. Agent Modes
 Every task must execute under one of the following explicit modes:
@@ -40,9 +46,11 @@ Every task must execute under one of the following explicit modes:
 Every agent completion response must include the standard output block:
 
 ```text
-STATUS: <COMPLETED | IN_PROGRESS | BLOCKED | FAILED>
+STATUS: <COMPLETED | IN_PROGRESS | WARNING | BLOCKED | FAILED>
 CHANGED: <List of modified file paths relative to project root, or NONE>
 TEST: <Summary of verification commands executed and results, e.g., PASS (X passed, Y failed)>
 RISK: <Concise description of identified risks, edge cases, or potential regressions>
 NEXT: <Specific recommended next action for human engineer or subsequent task phase>
 ```
+
+When worker artifacts and repository state differ, return `STATUS: WARNING` (not BLOCKED) and include artifact state, actual git state, and recommended action.

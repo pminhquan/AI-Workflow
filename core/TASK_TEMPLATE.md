@@ -38,6 +38,7 @@ This template defines the contract between the human engineer and the AI assista
 - No modifications outside ALLOWLIST.
 - No new external dependencies without prior human approval.
 - No secrets or environment credentials committed.
+- Never claim 'No files changed' without checking the target repository.
 
 ### ACCEPTANCE_CRITERIA
 <!-- Required: Testable, verifiable conditions that must be satisfied -->
@@ -50,12 +51,13 @@ This template defines the contract between the human engineer and the AI assista
 - [ ] Tier Gate: [Tier 0 / Tier 1 / Tier 2 / Tier 3 / Tier 4]
 - [ ] Read-only diff check verifies changes are within ALLOWLIST
 - [ ] Acceptance criteria verified with runnable tests or concrete evidence
+- [ ] Final repository-state gate: run git status --short, git diff --name-only, and git diff --check (actual workspace > git diff > worker artifacts; if mismatch, return STATUS: WARNING with artifact state, actual git state, and recommended action)
 
 ### REQUIRED_OUTPUT
 <!-- Required: Agent must conclude with the standard output block below -->
-STATUS: [COMPLETED | IN_PROGRESS | BLOCKED | FAILED]
-CHANGED: [List of changed files or NONE]
-TEST: [Test command(s) executed and result summary]
+STATUS: [COMPLETED | IN_PROGRESS | WARNING | BLOCKED | FAILED]
+CHANGED: [List of changed files verified via git status/diff, or NONE]
+TEST: [Test and gate command(s) executed (including git status --short, git diff --name-only, git diff --check) and result summary]
 RISK: [Identified risks, caveats, or residual uncertainties]
-NEXT: [Recommended next action for human or next task phase]
+NEXT: [Recommended next action for human or next task phase; if worker artifacts and repo state differ, report STATUS: WARNING with artifact state, actual git state, and recommended action]
 ```
