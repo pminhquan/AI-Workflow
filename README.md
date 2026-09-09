@@ -23,6 +23,7 @@ In this framework:
 ├── core/
 │   ├── AGENT_RULES.md               # Global governing rules, operational constraints, and boundaries
 │   ├── TASK_TEMPLATE.md             # Standardized contract for task specification and handover
+│   ├── QUICK_TASK_TEMPLATE.md       # Compact daily-use task template with automatic derivations
 │   ├── TEST_POLICY.md               # Tiered testing model (Tier 0 to Tier 4) and verification gates
 │   ├── GIT_POLICY.md                # Explicit Git rules, human-only operations, and branch lifecycle
 │   └── PROJECT_CONTEXT_TEMPLATE.md  # Template for project-specific stack, architecture, and constraints
@@ -56,6 +57,22 @@ In this framework:
 | `DEBUG` | Root cause analysis and minimal corrective fix | Trace failure, reproduce with test, apply minimal fix |
 | `RELEASE_CHECK` | Pre-release sanity check and gate compliance validation | Run read-only checks, verify readiness tiers |
 
+## Quick Task Format (Daily Use)
+
+For daily workflow tasks, use `core/QUICK_TASK_TEMPLATE.md` to minimize input overhead. The human provides only four required fields (and optional allowlist/constraints); the workflow automatically derives remaining execution parameters:
+
+```text
+MODE: [AUDIT | IMPLEMENT | REVIEW | DEBUG | RELEASE_CHECK]
+PROJECT: [Project Name or Path]
+GOAL: [Clear statement of the objective]
+RISK: [Low | Medium | High | Critical] - [Brief risk rationale]
+ALLOWLIST: [Optional: permitted file paths or glob patterns]
+CONSTRAINTS: [Optional: specific constraints or boundaries]
+```
+
+- **Automated Derivations**: The workflow automatically derives agents (`agents/`), skills (`skills/`), test tier (`core/TEST_POLICY.md`), verification rules, and Git policy (`core/GIT_POLICY.md`).
+- **Safety Invariants Preserved**: Strictly preserves no auto commit, no auto push, the human Git boundary, and the mandatory repository verification gate (`git status --short`, `git diff --name-only`, `git diff --check`).
+
 ## Standard Output Format
 
 All AI responses must conclude with or conform to the standard output format:
@@ -73,7 +90,7 @@ NEXT: <Recommended next action for human or next task phase>
    ```powershell
    ./scripts/load-context.ps1 -ProjectPath "/path/to/project"
    ```
-2. **Define the Task**: Copy `core/TASK_TEMPLATE.md` to define the task. Fill in `MODE`, `PROJECT`, `RISK`, `BASE_SHA`, `GOAL`, `ALLOWLIST`, `FORBIDDEN_ACTIONS`, `ACCEPTANCE_CRITERIA`, and `GATES`.
+2. **Define the Task**: Choose either the compact daily-use format in `core/QUICK_TASK_TEMPLATE.md` (requires only `MODE`, `PROJECT`, `GOAL`, `RISK` with automatic derivations) or the full contract in `core/TASK_TEMPLATE.md`.
 3. **Select Mode Prompt**: Use the corresponding prompt in `prompts/` (e.g., `prompts/implement.md`) along with the filled task template.
 4. **Inspect First**: The AI reads relevant files, verifies existing behavior, and confirms understandability before touching code.
 5. **Execute & Test**: Make minimal targeted changes strictly inside the `ALLOWLIST`. Execute the required test tier from `core/TEST_POLICY.md`.
