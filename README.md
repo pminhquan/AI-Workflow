@@ -21,10 +21,11 @@ In this framework:
 │   ├── tester.md            # Test tier selection, evidence verification, QA rigor
 │   └── security.md          # Auth, secrets management, permissions, data safety
 ├── core/
-│   ├── AGENT_RULES.md       # Global governing rules, operational constraints, and boundaries
-│   ├── TASK_TEMPLATE.md     # Standardized contract for task specification and handover
-│   ├── TEST_POLICY.md       # Tiered testing model (Tier 0 to Tier 4) and verification gates
-│   └── GIT_POLICY.md        # Explicit Git rules, human-only operations, and branch lifecycle
+│   ├── AGENT_RULES.md               # Global governing rules, operational constraints, and boundaries
+│   ├── TASK_TEMPLATE.md             # Standardized contract for task specification and handover
+│   ├── TEST_POLICY.md               # Tiered testing model (Tier 0 to Tier 4) and verification gates
+│   ├── GIT_POLICY.md                # Explicit Git rules, human-only operations, and branch lifecycle
+│   └── PROJECT_CONTEXT_TEMPLATE.md  # Template for project-specific stack, architecture, and constraints
 ├── prompts/
 │   ├── audit.md             # Prompt template for AUDIT mode (read-only inspection & analysis)
 │   ├── implement.md         # Prompt template for IMPLEMENT mode (scoped code modifications)
@@ -34,7 +35,8 @@ In this framework:
 ├── scripts/
 │   ├── git-check.ps1        # Read-only Git status, branch, and working-tree health check
 │   ├── diff-check.ps1       # Read-only diff inspection and modification boundary check
-│   └── release-check.ps1    # Read-only pre-release readiness and gate verification check
+│   ├── release-check.ps1    # Read-only pre-release readiness and gate verification check
+│   └── load-context.ps1     # Read-only project context and suggested skill loader
 ├── skills/                  # Domain-specific technical skill guidelines
 │   ├── java-web/skill.md    # Java web services, REST endpoints, and middleware practices
 │   ├── python/skill.md      # Python modules, packaging, typing, and async practices
@@ -67,9 +69,13 @@ NEXT: <Recommended next action for human or next task phase>
 
 ## Basic Usage
 
-1. **Define the Task**: Copy `core/TASK_TEMPLATE.md` to define the task. Fill in `MODE`, `PROJECT`, `RISK`, `BASE_SHA`, `GOAL`, `ALLOWLIST`, `FORBIDDEN_ACTIONS`, `ACCEPTANCE_CRITERIA`, and `GATES`.
-2. **Select Mode Prompt**: Use the corresponding prompt in `prompts/` (e.g., `prompts/implement.md`) along with the filled task template.
-3. **Inspect First**: The AI reads relevant files, verifies existing behavior, and confirms understandability before touching code.
-4. **Execute & Test**: Make minimal targeted changes strictly inside the `ALLOWLIST`. Execute the required test tier from `core/TEST_POLICY.md`.
-5. **Read-Only Verification**: Run the read-only PowerShell scripts in `scripts/` (`git-check.ps1`, `diff-check.ps1`, `release-check.ps1`) to verify clean boundaries.
-6. **Human Review & Git Mutation**: The human engineer reviews the final diff and executes Git commands manually.
+1. **Define & Load Project Context**: Copy `core/PROJECT_CONTEXT_TEMPLATE.md` to `.ai/CONTEXT.md` in the target project. Run the context loader to inspect context and suggested skills:
+   ```powershell
+   ./scripts/load-context.ps1 -ProjectPath "/path/to/project"
+   ```
+2. **Define the Task**: Copy `core/TASK_TEMPLATE.md` to define the task. Fill in `MODE`, `PROJECT`, `RISK`, `BASE_SHA`, `GOAL`, `ALLOWLIST`, `FORBIDDEN_ACTIONS`, `ACCEPTANCE_CRITERIA`, and `GATES`.
+3. **Select Mode Prompt**: Use the corresponding prompt in `prompts/` (e.g., `prompts/implement.md`) along with the filled task template.
+4. **Inspect First**: The AI reads relevant files, verifies existing behavior, and confirms understandability before touching code.
+5. **Execute & Test**: Make minimal targeted changes strictly inside the `ALLOWLIST`. Execute the required test tier from `core/TEST_POLICY.md`.
+6. **Read-Only Verification**: Run the read-only PowerShell scripts in `scripts/` (`git-check.ps1`, `diff-check.ps1`, `release-check.ps1`) to verify clean boundaries.
+7. **Human Review & Git Mutation**: The human engineer reviews the final diff and executes Git commands manually.
