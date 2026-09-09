@@ -1,0 +1,10 @@
+# Antigravity runtime artifacts
+.antigravity-bridge/jobs/
+
+# Temporary files
+*.log
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db

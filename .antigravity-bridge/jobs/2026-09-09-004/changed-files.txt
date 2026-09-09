@@ -1,5 +1,0 @@
-agents/architect.md
-agents/developer.md
-agents/reviewer.md
-agents/tester.md
-agents/security.md
