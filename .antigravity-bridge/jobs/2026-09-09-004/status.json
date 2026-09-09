@@ -1,0 +1,23 @@
+{
+  "jobId": "2026-09-09-004",
+  "routingDecision": "DELEGATED",
+  "workflowMode": "DELEGATED",
+  "routingReason": "High-complexity or high-risk task delegated to Antigravity Desktop execution.",
+  "executor": "antigravity",
+  "submissionStatus": "completed",
+  "executionStatus": "completed",
+  "resultArtifact": "result.md",
+  "state": "completed",
+  "mode": "patch",
+  "createdAt": "2026-09-09T05:15:42.903Z",
+  "startedAt": "2026-09-09T05:15:55.000Z",
+  "updatedAt": "2026-09-09T05:16:45.000Z",
+  "completedAt": "2026-09-09T05:16:45.000Z",
+  "currentStep": "completed",
+  "requestFile": "request.md",
+  "resultFile": "result.md",
+  "changedFilesFile": "changed-files.txt",
+  "diffFile": "diff.patch",
+  "testOutputSummaryFile": "test-output-summary.md",
+  "blocker": null
+}

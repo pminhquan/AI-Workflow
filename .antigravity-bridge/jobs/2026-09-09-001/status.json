@@ -1,0 +1,23 @@
+{
+  "jobId": "2026-09-09-001",
+  "routingDecision": "DIRECT",
+  "workflowMode": "DIRECT",
+  "routingReason": "Documentation task handled directly by Codex.",
+  "executor": "antigravity",
+  "submissionStatus": "completed",
+  "executionStatus": "completed",
+  "resultArtifact": "result.md",
+  "state": "completed",
+  "mode": "deep",
+  "createdAt": "2026-09-09T04:56:53.621Z",
+  "startedAt": "2026-09-09T04:57:15.000Z",
+  "updatedAt": "2026-09-09T04:59:55.000Z",
+  "completedAt": "2026-09-09T04:59:55.000Z",
+  "currentStep": "completed",
+  "requestFile": "request.md",
+  "resultFile": "result.md",
+  "changedFilesFile": "changed-files.txt",
+  "diffFile": "diff.patch",
+  "testOutputSummaryFile": "test-output-summary.md",
+  "blocker": null
+}

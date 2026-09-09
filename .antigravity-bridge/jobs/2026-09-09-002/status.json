@@ -1,0 +1,23 @@
+{
+  "jobId": "2026-09-09-002",
+  "routingDecision": "DELEGATED",
+  "workflowMode": "DELEGATED",
+  "routingReason": "The task appears to benefit from Antigravity inspecting the local workspace or running longer reasoning while Codex reads back a compact artifact.",
+  "executor": "antigravity",
+  "submissionStatus": "completed",
+  "executionStatus": "completed",
+  "resultArtifact": "result.md",
+  "state": "completed",
+  "mode": "patch",
+  "createdAt": "2026-09-09T05:01:55.715Z",
+  "startedAt": "2026-09-09T05:02:10.000Z",
+  "updatedAt": "2026-09-09T05:03:00.000Z",
+  "completedAt": "2026-09-09T05:03:00.000Z",
+  "currentStep": "completed",
+  "requestFile": "request.md",
+  "resultFile": "result.md",
+  "changedFilesFile": "changed-files.txt",
+  "diffFile": "diff.patch",
+  "testOutputSummaryFile": "test-output-summary.md",
+  "blocker": null
+}

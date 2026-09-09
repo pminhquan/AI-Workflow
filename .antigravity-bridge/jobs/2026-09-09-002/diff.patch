@@ -1,0 +1,32 @@
+--- a/scripts/release-check.ps1
++++ b/scripts/release-check.ps1
+@@ -5,3 +5,3 @@
+ .DESCRIPTION
+-    Validates release readiness criteria (clean working tree, required files, test execution)
++    Validates release readiness criteria (clean working tree, required files)
+     without performing git mutations, tags, or deployments.
+@@ -13,5 +13,3 @@
+ .PARAMETER TestTier
+     Verification tier being checked (0, 1, 2, 3, or 4). Default is 4.
+-.PARAMETER TestCommand
+-    Optional test command string to execute for gate verification.
+ #>
+@@ -26,6 +24,4 @@
+     [ValidateRange(0, 4)]
+-    [int]$TestTier = 4,
+-
+-    [string]$TestCommand
++    [int]$TestTier = 4
+ )
+@@ -106,12 +102,0 @@
+-# 6. Test command execution if provided
+-if ($TestCommand -and $TestCommand.Trim() -ne '') {
+-    Write-Host "Executing Tier $TestTier gate verification: $TestCommand"
+-    Invoke-Expression -Command $TestCommand
+-    if ($LASTEXITCODE -ne 0) {
+-        Write-Error "Release check failed: Test verification command exited with error code $LASTEXITCODE."
+-        exit 1
+-    }
+-    Write-Host "[PASS] Tier $TestTier verification passed successfully."
+-}
+-

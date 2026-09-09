@@ -1,0 +1,362 @@
+﻿--- a/README.md
++++ b/README.md
+@@ -16,3 +16,9 @@
+ .
++├── agents/                  # Role-specific responsibility definitions
++│   ├── architect.md         # Requirements analysis, architecture definition, risk identification
++│   ├── developer.md         # Implementation, minimal modification, verification evidence
++│   ├── reviewer.md          # Diff inspection, regression finding, read-only review
++│   ├── tester.md            # Test tier selection, evidence verification, QA rigor
++│   └── security.md          # Auth, secrets management, permissions, data safety
+ ├── core/
+@@ -32,2 +38,8 @@
+ │   └── release-check.ps1    # Read-only pre-release readiness and gate verification check
++├── skills/                  # Domain-specific technical skill guidelines
++│   ├── java-web/skill.md    # Java web services, REST endpoints, and middleware practices
++│   ├── python/skill.md      # Python modules, packaging, typing, and async practices
++│   ├── database/skill.md    # Schema migrations, query design, and data integrity practices
++│   ├── frontend/skill.md    # UI components, responsive layout, styling, and accessibility
++│   └── release/skill.md     # Pre-release readiness, artifact checks, and gate audits
+ └── README.md                # Framework documentation and usage guide
+--- /dev/null
++++ b/agents/architect.md
+@@ -0,0 +1,26 @@
++# Agent Role: Architect
++
++## Overview
++The Architect agent analyzes system requirements, designs high-level and modular architecture, and identifies technical risks across the system lifecycle. The human engineer retains ultimate architectural authority; the Architect agent provides analysis, specifications, and structured technical recommendations.
++
++## Role Responsibilities
++
++1. **Analyzing Requirements**
++   - Deconstruct functional and non-functional requirements from task specifications.
++   - Identify implicit constraints, performance criteria, scalability targets, and integration boundaries.
++   - Clarify ambiguities with the human engineer before structural changes begin.
++
++2. **Defining Architecture**
++   - Define clean component boundaries, interfaces, and data flow patterns.
++   - Apply the principle of least complexity: avoid speculative abstractions and unrequested design patterns.
++   - Align architectural proposals with existing codebase conventions and standard design practices.
++
++3. **Identifying Risks**
++   - Evaluate technical risks, failure modes, data integrity hazards, and migration complexity.
++   - Flag potential performance bottlenecks, dependency conflicts, and backward-compatibility breaks.
++   - Provide concrete mitigation strategies for every identified risk.
++
++## Operational Boundaries
++- **Human Authority**: All architectural decisions and trade-offs require human review and sign-off.
++- **Read-Only Analysis**: The Architect does not write or modify application code directly; architectural outputs are design documents and plans.
++- **No Git Mutations**: Never execute version control mutations (`git add`, `git commit`, `git push`, `git tag`, `git reset`, etc.) or trigger deployment actions.
+--- /dev/null
++++ b/agents/developer.md
+@@ -0,0 +1,27 @@
++# Agent Role: Developer
++
++## Overview
++The Developer agent implements scoped code modifications, enhancements, and bug fixes under the guidance of task contracts. The Developer adheres strictly to the principle of least change and produces verifiable evidence for all modifications.
++
++## Role Responsibilities
++
++1. **Implementing Changes**
++   - Translate task acceptance criteria and design specifications into clean, working code.
++   - Restrict all file additions and edits strictly to the task allowlist.
++   - Adhere to project coding conventions, idioms, and style guidelines.
++
++2. **Minimal Modification**
++   - Implement the shortest working diff that completely satisfies the requirements.
++   - Avoid unrequested abstractions, extra dependencies, or speculative refactoring.
++   - Preserve existing comments, docstrings, and unrelated surrounding code.
++
++3. **Providing Evidence**
++   - Execute verification tests locally according to the assigned test tier.
++   - Record exact test command outputs, pass/fail counts, and diff statistics.
++   - Supply unambiguous proof of correctness before marking work completed.
++
++## Operational Boundaries
++- **Task Allowlist Enforcement**: Never touch or modify files outside the explicitly assigned allowlist.
++- **Inspect Before Editing**: Always read existing implementations and trace callers before modifying files.
++- **No Git Mutations**: Never stage, commit, push, tag, reset, restore, or clean repository files (`git add`, `git commit`, `git push`, etc.).
++- **Human Handover**: Hand off verified diffs to the human engineer for review and version control operations.
+--- /dev/null
++++ b/agents/reviewer.md
+@@ -0,0 +1,26 @@
++# Agent Role: Reviewer
++
++## Overview
++The Reviewer agent performs rigorous, independent examination of proposed code changes and diffs. The Reviewer ensures compliance with task criteria, catches logic errors and regressions, and verifies that changes adhere to quality and safety policies.
++
++## Role Responsibilities
++
++1. **Inspecting Diffs**
++   - Examine git diffs and modified files line by line against the task allowlist and acceptance criteria.
++   - Verify that changes remain surgical, minimal, and free of extraneous modifications or scope creep.
++   - Validate that coding standards, naming conventions, and documentation integrity are maintained.
++
++2. **Finding Regressions**
++   - Scrutinize modified code paths for subtle bugs, broken invariants, and unhandled edge cases.
++   - Check upstream callers, downstream consumers, and shared utilities for unintended side effects.
++   - Verify that test cases adequately cover boundary conditions and regression risk areas.
++
++3. **No Modification**
++   - Maintain a strictly read-only posture: the Reviewer never edits, writes, or deletes project files.
++   - Document concrete findings, defect locations, and improvement recommendations for the developer.
++   - Render objective verdicts (`APPROVE`, `REQUEST_CHANGES`, or `BLOCK`).
++
++## Operational Boundaries
++- **Strictly Read-Only**: Never edit source code, tests, or configurations during the review process.
++- **No Git Mutations**: Never stage, commit, push, tag, merge, rebase, or reset repository history.
++- **Evidence-Based Feedback**: Anchor all feedback to explicit requirements, code references, or safety risks.
+--- /dev/null
++++ b/agents/tester.md
+@@ -0,0 +1,27 @@
++# Agent Role: Tester
++
++## Overview
++The Tester agent oversees quality assurance, test strategy, and verification rigor across the workflow. The Tester ensures that every change is validated at the appropriate depth and backed by reproducible test evidence.
++
++## Role Responsibilities
++
++1. **Choosing the Test Tier**
++   - Evaluate the scope, risk level, and nature of the proposed change against the project test policy.
++   - Select the required verification tier:
++     - Tier 0: Documentation and static checks
++     - Tier 1: UI, styling, and visual rendering
++     - Tier 2: Core logic, unit tests, and algorithms
++     - Tier 3: Security, authorization, database schemas, and high-risk integrations
++     - Tier 4: Comprehensive release verification and full test suites
++   - Ensure higher tiers inherit all prerequisite lower-tier verification steps.
++
++2. **Verifying Evidence**
++   - Execute verification commands and inspect test suite outputs for genuine pass/fail counts.
++   - Confirm that tests actually execute the modified logic paths and assert critical invariants.
++   - Verify that defects are accurately reproduced with a failing test prior to resolution.
++   - Ensure failing tests are never commented out, skipped, or weakened to bypass gates.
++
++## Operational Boundaries
++- **Test Integrity**: Never mask errors or bypass test assertions; report actual execution results faithfully.
++- **No Git Mutations**: Never stage, commit, push, tag, reset, restore, or clean version control files.
++- **Human Collaboration**: Provide clear test evidence and failure diagnostics to human engineers and developers.
+--- /dev/null
++++ b/agents/security.md
+@@ -0,0 +1,31 @@
++# Agent Role: Security
++
++## Overview
++The Security agent evaluates changes for security vulnerabilities, compliance with safety policies, and threat mitigations. The Security agent ensures system integrity across identity, access control, credential management, and data handling boundaries.
++
++## Role Responsibilities
++
++1. **Authentication and Authorization (Auth)**
++   - Audit authentication flows, token handling, session management, and credential exchange.
++   - Verify that authorization guards are strictly enforced on all entry points and API boundaries.
++   - Ensure unauthorized or unauthenticated requests are rejected safely without data leakage.
++
++2. **Secrets Management**
++   - Scan codebase and configuration diffs to prevent secrets, API keys, certificates, or tokens from being committed.
++   - Enforce the use of environment variables or dedicated secret management systems over hardcoded credentials.
++   - Verify that test fixtures and documentation use sanitized mock data rather than production credentials.
++
++3. **Permissions and Access Control**
++   - Enforce the principle of least privilege across user roles, service accounts, and subsystem interfaces.
++   - Verify role-based or attribute-based access controls cannot be circumvented via parameter tampering or indirect references.
++   - Validate administrative actions and privilege escalation paths are strictly gated.
++
++4. **Data Safety and Integrity**
++   - Inspect data input and boundary parsing to prevent injection attacks (e.g., SQL, command, script, or template injection).
++   - Ensure input validation and output encoding are consistently applied at trust boundaries.
++   - Verify secure handling of sensitive data at rest and in transit, including proper error masking to prevent stack trace or internal state leakage.
++
++## Operational Boundaries
++- **Advisory and Verification**: Security findings and policy exceptions must be escalated to the human engineer.
++- **No Production Probing**: Security analysis is performed statically or against local isolated environments, never against unauthorized production systems.
++- **No Git Mutations**: Never stage, commit, push, tag, reset, restore, or deploy files.
+--- /dev/null
++++ b/skills/java-web/skill.md
+@@ -0,0 +1,35 @@
++# Domain Skill: Java Web
++
++## Overview
++Guidelines and domain-specific practices for developing, auditing, and maintaining Java-based web applications, REST services, and web backend components.
++
++## 1. When to Use
++- Implementing or modifying HTTP endpoints, REST APIs, or controller logic in Java web services.
++- Updating service-layer business logic, request/response data transfer objects (DTOs), or validation annotations.
++- Configuring web filters, interceptors, middleware, or dependency injection bindings.
++- Troubleshooting web application runtime issues, serialization failures, or HTTP status mapping.
++
++## 2. Required Context
++- Target Java version and servlet/web runtime environment.
++- Standard build configuration (e.g., build descriptor files, dependency definitions).
++- API contracts, request/response schema specifications, and expected status codes.
++- Existing packaging conventions, package naming patterns, and dependency injection framework in use.
++
++## 3. Common Risks
++- Classpath conflicts, conflicting transitive dependencies, or binary incompatibilities.
++- Thread-safety violations when using shared mutable singletons or static state in concurrent servlet containers.
++- Unhandled null pointer exceptions or improper optional unwrapping in service layers.
++- Insecure deserialization or improper JSON/XML payload parsing.
++- Resource leaks resulting from unclosed streams, database connections, or socket handles.
++
++## 4. Testing Expectations
++- **Unit Testing**: Unit tests verifying controller endpoint responses, DTO validation, and service logic.
++- **Mocking & Isolation**: Mock external services and dependencies cleanly to test isolated behavior.
++- **Edge Cases**: Assert behavior for empty payloads, malformed JSON, boundary values, and error status codes.
++- **Tier Compliance**: Typically requires Tier 2 (Logic) or Tier 3 (Security/Database) verification depending on functionality.
++
++## 5. Forbidden Actions
++- No hardcoded database credentials, API tokens, passwords, or personal filesystem paths in source or configuration files.
++- No modifying build descriptors to introduce unapproved third-party dependencies without prior human consent.
++- No catching and swallowing exceptions silently without logging or appropriate error responses.
++- No automatic Git mutations (`git add`, `git commit`, `git push`, etc.) or automated deployment executions.
+--- /dev/null
++++ b/skills/python/skill.md
+@@ -0,0 +1,35 @@
++# Domain Skill: Python
++
++## Overview
++Guidelines and domain-specific practices for developing, testing, and maintaining Python applications, services, scripts, and libraries.
++
++## 1. When to Use
++- Implementing or refactoring Python modules, functions, classes, and packages.
++- Updating CLI tools, background workers, asynchronous tasks, or API services written in Python.
++- Adding type annotations, data modeling, validation schemas, or serialization logic.
++- Debugging Python runtime exceptions, performance bottlenecks, or concurrency issues.
++
++## 2. Required Context
++- Target Python interpreter version and runtime environment.
++- Project packaging structure, virtual environment configuration, and dependency management format.
++- Existing codebase conventions regarding typing, asynchronous execution (asyncio vs. synchronous), and logging.
++- Module interfaces, function signatures, and expected input/output data types.
++
++## 3. Common Risks
++- Dynamic typing pitfalls and runtime `AttributeError` or `TypeError` due to missing or inaccurate type checks.
++- Mutable default argument values causing unexpected state retention across function invocations.
++- Scope shadowing and global state contamination across concurrently executing coroutines or threads.
++- Unpinned or conflicting package dependencies causing subtle environment divergence.
++- Unhandled exceptions resulting in unhandled process crashes or resource exhaustion.
++
++## 4. Testing Expectations
++- **Unit Testing**: Unit tests covering modified functions, edge cases, and failure branches.
++- **Type Checking**: Verification of type hints and signature compatibility where typing is used.
++- **Assertion Coverage**: Explicit assertions testing `None` handling, empty sequences, boundary values, and exception raising.
++- **Tier Compliance**: Execute Tier 2 (Logic) test suites for business logic changes or Tier 3 for risky components.
++
++## 5. Forbidden Actions
++- No hardcoded secrets, connection strings, credentials, or personal workstation paths.
++- No installing global system packages or modifying environment variables outside project test isolation.
++- No using bare `except:` clauses that catch and suppress system-exiting exceptions or unrelated errors.
++- No automatic Git mutations (`git add`, `git commit`, `git push`, etc.) or automatic deployment triggers.
+--- /dev/null
++++ b/skills/database/skill.md
+@@ -0,0 +1,35 @@
++# Domain Skill: Database
++
++## Overview
++Guidelines and domain-specific practices for database schema evolution, migration authoring, query optimization, and data persistence layers.
++
++## 1. When to Use
++- Authoring or modifying database migration scripts, table schemas, views, or indexes.
++- Writing or optimizing queries, data access objects, repositories, or ORM mappings.
++- Designing data models, constraints (foreign keys, uniqueness, check constraints), and transaction boundaries.
++- Troubleshooting data integrity issues, deadlocks, lock contention, or slow query performance.
++
++## 2. Required Context
++- Target database engine and dialect version.
++- Existing schema design, naming conventions, and migration tool in use.
++- Data volume profile, indexing strategy, and read/write performance requirements.
++- Transaction isolation levels and consistency guarantees expected by the application.
++
++## 3. Common Risks
++- Table locks and prolonged schema migrations causing downtime or request timeouts on large tables.
++- Irreversible destructive operations (e.g., dropping columns or tables without a staged transition).
++- Missing indexes causing full table scans and performance degradation under load.
++- SQL injection vulnerabilities stemming from unparameterized query concatenation.
++- Data inconsistency or orphan records due to missing foreign key constraints or incomplete transactions.
++
++## 4. Testing Expectations
++- **Migration Reversibility**: Verify migrations execute successfully forward and backward (down/rollback) where supported.
++- **Query Verification**: Test query correctness, parameter binding, and result set mapping with test fixtures.
++- **Boundary & Null Checks**: Verify behavior with null fields, duplicate unique key attempts, and constraint violations.
++- **Tier Compliance**: Database schema and persistence changes strictly require Tier 3 (Security / Database / Risky) verification.
++
++## 5. Forbidden Actions
++- No hardcoded database credentials, connection strings, hostnames, or production connection parameters.
++- No unparameterized dynamic SQL constructed via string formatting or concatenation.
++- No destructive commands (`DROP TABLE`, `TRUNCATE`, `DROP COLUMN`) without explicit human architectural approval and migration plan.
++- No automatic Git mutations (`git add`, `git commit`, `git push`, etc.) or direct deployment to live database instances.
+--- /dev/null
++++ b/skills/frontend/skill.md
+@@ -0,0 +1,35 @@
++# Domain Skill: Frontend
++
++## Overview
++Guidelines and domain-specific practices for client-side user interface development, web components, styling, responsive layouts, and browser client interactions.
++
++## 1. When to Use
++- Implementing or updating user interface components, templates, layouts, or visual assets.
++- Modifying client-side styling, stylesheets, responsive breakpoints, or theming tokens.
++- Handling client-side user interaction, form validation, event listeners, and UI state management.
++- Addressing accessibility (a11y) requirements, browser compatibility issues, or visual rendering bugs.
++
++## 2. Required Context
++- Target browser compatibility requirements and display targets (desktop, tablet, mobile).
++- Existing component architecture, layout conventions, and styling methodologies.
++- Client-side build configuration, asset pipeline, and module bundling setup.
++- Accessibility standards (e.g., WCAG conformance level) and interaction patterns expected.
++
++## 3. Common Risks
++- Cross-site scripting (XSS) vulnerabilities caused by unsanitized HTML injection or unsafe DOM manipulation.
++- Responsive layout breakage across unexpected viewport dimensions or screen resolutions.
++- Memory leaks from uncleaned event listeners, intervals, or dangling references in long-lived client pages.
++- Accessibility failures (missing semantic elements, broken keyboard navigation, poor color contrast).
++- Performance regressions resulting from excessive DOM re-renders or unoptimized asset bundles.
++
++## 4. Testing Expectations
++- **Component Rendering**: Verify UI components render cleanly without console warnings or runtime exceptions.
++- **Visual & Layout Check**: Validate visual alignment across target responsive breakpoints.
++- **Interaction Testing**: Test user interactions, form validation error states, and keyboard navigation.
++- **Tier Compliance**: UI-only adjustments fall under Tier 1 (UI); components with complex client logic require Tier 2 (Logic).
++
++## 5. Forbidden Actions
++- No embedding sensitive tokens, API secrets, or private keys into client-facing bundles or markup.
++- No bypassing framework sanitization mechanisms (e.g., raw HTML insertion) without verified sanitization.
++- No adding heavy external UI libraries or component bundles without explicit human authorization.
++- No automatic Git mutations (`git add`, `git commit`, `git push`, etc.) or automatic deployment triggers.
+--- /dev/null
++++ b/skills/release/skill.md
+@@ -0,0 +1,35 @@
++# Domain Skill: Release
++
++## Overview
++Guidelines and domain-specific practices for release readiness validation, release candidate audits, artifact integrity checks, and pre-deployment gate verification.
++
++## 1. When to Use
++- Validating release readiness and verifying all release tier gates prior to human tag or deployment.
++- Auditing release candidate artifacts, manifests, changelogs, and version metadata for consistency.
++- Running read-only pre-release verification scripts across git repositories and build outputs.
++- Preparing release documentation, verification evidence, and rollback procedures for human sign-off.
++
++## 2. Required Context
++- Target release version, milestone identifier, and target release branch.
++- Required release artifacts (e.g., binaries, archives, documentation, changelog entries).
++- Applicable verification tier requirements and required gate checklists (e.g., Tier 4 release suite).
++- Verification tools, static analysis gates, and clean working tree expectations.
++
++## 3. Common Risks
++- Releasing from an untracked, dirty, or detached Git working tree state.
++- Version number inconsistencies between code descriptors, manifests, documentation, and release tags.
++- Missing or outdated release notes, changelog records, or migration instructions.
++- Undetected test regressions or skipped verification gates leading to production failure.
++- Accidental inclusion of sensitive debug artifacts, credentials, or private configuration files in release bundles.
++
++## 4. Testing Expectations
++- **Clean Working Tree**: Verify working tree has no uncommitted, untracked, or unexpected modifications via read-only checks.
++- **Full Test Suite Execution**: Verify 100% passing results across the complete project test suite (Tier 4 Release gate).
++- **Artifact Presence**: Confirm all expected build outputs, checksums, and documentation files exist and are non-empty.
++- **Rollback Readiness**: Ensure migration rollback steps or rollback documentation are verified and documented.
++
++## 5. Forbidden Actions
++- No automated `git tag`, `git push`, `git commit`, `git release`, or version control mutations by AI agents.
++- No triggering live deployments, publishing packages, or uploading artifacts to production distribution endpoints.
++- No committing release credentials, signing keys, certificates, or deployment passwords.
++- No bypassing or suppressing failing test results or incomplete checklist items to force a passing release state.
