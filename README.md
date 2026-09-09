@@ -33,7 +33,8 @@ In this framework:
 │   ├── implement.md         # Prompt template for IMPLEMENT mode (scoped code modifications)
 │   ├── review.md            # Prompt template for REVIEW mode (code & diff review against criteria)
 │   ├── debug.md             # Prompt template for DEBUG mode (root-cause diagnosis & surgical fix)
-│   └── release.md           # Prompt template for RELEASE_CHECK mode (pre-release validation)
+│   ├── release.md           # Prompt template for RELEASE_CHECK mode (pre-release validation)
+│   └── shortcuts.md         # Compact workflow shortcuts (/fix, /feature, /ui, etc.)
 ├── scripts/
 │   ├── git-check.ps1        # Read-only Git status, branch, and working-tree health check
 │   ├── diff-check.ps1       # Read-only diff inspection and modification boundary check
@@ -74,6 +75,24 @@ CONSTRAINTS: [Optional: specific boundaries or non-goals]
 - **Automated Parameter Derivations**: Infers default `MODE`, default `RISK`, recommended agents (`agents/`), recommended skills (`skills/`), and default test tier (`core/TEST_POLICY.md`) as provisional context. For `MIXED`, recommended skills resolve to the union of matched category skills (`frontend`, `java-web`, `python`, `database`, `release`).
 - **Precedence & Escalation**: Explicit inputs always override inferred values. Cross-domain overlaps resolve to `MIXED`. Ambiguous, contradictory, unknown-scope, or High/Critical-risk tasks (including high-risk categories `DATABASE`, `AUTH_SECURITY`, `UPLOAD_FILE`, `RELEASE`, `MIXED`) produce an explicit `ESCALATE` outcome and halt for human clarification/confirmation (never guessing or defaulting to MODE AUDIT). When classification returns `ESCALATE`, the standard response uses `STATUS: BLOCKED` and `NEXT` requests human clarification or confirmation.
 - **Safety Invariants Preserved**: Classification NEVER grants permission for `git add`, `git commit`, `git push`, `git tag`, deploy actions, or destructive database operations (`DROP TABLE`, `TRUNCATE`, destructive migrations). Strictly preserves the human Git boundary and the mandatory repository verification gate (`git status --short`, `git diff --name-only`, `git diff --check`).
+
+## Daily Usage
+
+For rapid daily handoff, the framework provides 10 compact workflow shortcuts documented in `prompts/shortcuts.md`: `/fix`, `/feature`, `/debug`, `/audit`, `/review`, `/test`, `/release`, `/ui`, `/db`, `/security`.
+
+Shortcuts use minimal input (normal shortcuts use `PROJECT` plus `TASK`; `/debug` accepts `ISSUE:`; `/audit` accepts `SCOPE:`; `/release` may be project-only for a project-level release check). Execution parameters (`MODE`, `RISK`, `AGENTS`, `SKILLS`, `GATES`) are derived through canonical policies (`core/TASK_CLASSIFICATION.md`, `core/TEST_POLICY.md`, `core/AGENT_RULES.md`, `core/GIT_POLICY.md`, and optional project `.ai/CONTEXT.md` when present). For `/feature`, `/audit`, and `/review`, category and downstream parameters are deferred to `core/TASK_CLASSIFICATION.md`. High-risk escalation depends on the classifier's resulting high-risk category or explicit `RISK: High`/`Critical`, not solely on shortcut names.
+
+### Examples
+
+```text
+/fix PROJECT: D:\PROJECT\Example TASK: Fix avatar upload
+/ui PROJECT: D:\PROJECT\Example TASK: Improve navbar spacing
+/audit PROJECT: D:\PROJECT\Example SCOPE: authentication
+/release PROJECT: D:\PROJECT\Example
+```
+
+- **Safety Invariants**: Shortcuts never grant permission for `git add`, `commit`, `push`, `tag`, deployment, destructive DB operations, or secret access. Ambiguous or high-risk tasks mandate `ESCALATE` halting (`STATUS: BLOCKED`).
+- **Repository Verification Gate**: The mandatory repository verification gate (`git status --short`, `git diff --name-only`, `git diff --check`) must execute before reporting completion.
 
 ## Standard Output Format
 

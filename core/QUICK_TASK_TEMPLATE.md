@@ -28,6 +28,17 @@ ALLOWLIST: src/validators/email.ts, tests/validators/email.test.ts
 CONSTRAINTS: No external validator dependencies; use stdlib regex
 ```
 
+### Workflow Shortcuts
+Tasks may also be initiated using compact workflow shortcuts (`prompts/shortcuts.md`):
+`/fix`, `/feature`, `/debug`, `/audit`, `/review`, `/test`, `/release`, `/ui`, `/db`, `/security`.
+- Format: `<shortcut>` followed by `PROJECT: <path>` and `TASK: <goal>`.
+- `/debug` accepts `ISSUE: <description>` (interchangeable with `TASK:`).
+- `/audit` accepts `SCOPE: <description>` (interchangeable with `TASK:`).
+- `/release` supports project-only invocation (`PROJECT: <path>`) for project-level release verification.
+- For `/feature`, `/audit`, and `/review`, category and downstream execution parameters (`RISK`, `AGENTS`, `SKILLS`, `TEST TIER`) are deferred to `core/TASK_CLASSIFICATION.md` based on task/scope/path.
+- High-risk escalation depends on the classifier's resulting high-risk category (`DATABASE`, `AUTH_SECURITY`, `UPLOAD_FILE`, `RELEASE`, `MIXED`) or explicit `RISK: High`/`Critical`, not solely on shortcut names.
+- Omitted execution parameters (`MODE`, `RISK`, `CATEGORY`, `AGENTS`, `SKILLS`, `GATES`) are resolved via canonical policies: `core/TASK_CLASSIFICATION.md`, `core/TEST_POLICY.md`, `core/AGENT_RULES.md`, `core/GIT_POLICY.md`, and optional project `.ai/CONTEXT.md` when present.
+
 ---
 
 ## 2. Automated Parameter Inference
