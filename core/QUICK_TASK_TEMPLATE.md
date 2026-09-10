@@ -1,87 +1,39 @@
-# Quick Task Template
+# Quick Task Template (Compatibility Alias)
 
-Compact daily-use task input format for fast, low-friction task handoff.
+Compact task handoff format conforming to the canonical routing contract defined in [`core/TASK_TEMPLATE.md`](TASK_TEMPLATE.md).
 
 ---
 
 ## 1. Minimal Quick Input Format
 
-### Required Inputs
+Every task uses the six required fields of the canonical routing contract; state each field explicitly:
+
 ```text
-PROJECT: <path>
-TASK: <goal>
+INTENT: <goal, action, defect, or objective to solve>
+RISK: <Low | Medium | High | Critical>
+TARGET: <project path, repository, or component>
+ALLOWLIST: <mandatory explicit list of file paths/patterns for writes; NONE for read-only>
+REVIEW: <conditional review rule: SELF | PEER | HUMAN>
+TEST: <focused verification command, tier (Tier 0-4), or evidence>
 ```
 
-### Optional Overrides
-```text
-RISK: [Optional: Low | Medium | High | Critical - overrides inferred risk]
-ALLOWLIST: [Optional: comma-separated file paths or glob patterns permitted to be modified]
-CONSTRAINTS: [Optional: specific restrictions, non-goals, or boundaries]
-```
+Behavior-changing repository work, including test or source changes, is delegated to Antigravity. Native Codex is limited to read-only analysis, verification, and documentation/non-executable artifact writes. `/fix` diagnoses before delegation, `/test` creates a test request, and `/debug` is diagnosis only.
 
-### Example
-```text
-PROJECT: auth-service
-TASK: Add email format validation before account registration
-RISK: Low
-ALLOWLIST: src/validators/email.ts, tests/validators/email.test.ts
-CONSTRAINTS: No external validator dependencies; use stdlib regex
-```
+### Shortcuts Compatibility
 
-### Workflow Shortcuts
-Tasks may also be initiated using compact workflow shortcuts (`prompts/shortcuts.md`):
-`/fix`, `/feature`, `/debug`, `/audit`, `/review`, `/test`, `/release`, `/ui`, `/db`, `/security`.
-- Format: `<shortcut>` followed by `PROJECT: <path>` and `TASK: <goal>`.
-- `/debug` accepts `ISSUE: <description>` (interchangeable with `TASK:`).
-- `/audit` accepts `SCOPE: <description>` (interchangeable with `TASK:`).
-- `/release` supports project-only invocation (`PROJECT: <path>`) for project-level release verification.
-- For `/feature`, `/audit`, and `/review`, category and downstream execution parameters (`RISK`, `AGENTS`, `SKILLS`, `TEST TIER`) are deferred to `core/TASK_CLASSIFICATION.md` based on task/scope/path.
-- High-risk escalation depends on the classifier's resulting high-risk category (`DATABASE`, `AUTH_SECURITY`, `UPLOAD_FILE`, `RELEASE`, `MIXED`) or explicit `RISK: High`/`Critical`, not solely on shortcut names.
-- Omitted execution parameters (`MODE`, `RISK`, `CATEGORY`, `AGENTS`, `SKILLS`, `GATES`) are resolved via canonical policies: `core/TASK_CLASSIFICATION.md`, `core/TEST_POLICY.md`, `core/AGENT_RULES.md`, `core/GIT_POLICY.md`, and optional project `.ai/CONTEXT.md` when present.
+Workflow shortcuts documented in [`prompts/shortcuts.md`](../prompts/shortcuts.md) (`/fix`, `/feature`, `/debug`, `/audit`, `/review`, `/test`, `/release`, `/ui`, `/db`, `/security`) serve as thin compatibility aliases that map directly into this 6-field canonical contract and provider routing.
 
 ---
 
-## 2. Automated Parameter Inference
+## 2. Core Governance Invariants
 
-When receiving minimal input, the workflow deterministically infers provisional execution parameters using `core/TASK_CLASSIFICATION.md`:
-
-| Inferred Parameter | Deterministic Inference Logic |
-|---|---|
-| **Category** | Deterministically classified into one of 10 categories (`UI`, `BACKEND_LOGIC`, `DATABASE`, `AUTH_SECURITY`, `UPLOAD_FILE`, `TESTING`, `DEBUG`, `DOCUMENTATION`, `RELEASE`, `MIXED`) based on normalized path and keyword signatures. |
-| **MODE** | Inferred from category default `MODE` (`IMPLEMENT`, `DEBUG`, `RELEASE_CHECK`). Category mappings are provisional context only and do not authorize execution on `ESCALATE`. |
-| **RISK** | Inferred from category default `RISK` (e.g., `Low` for UI/docs/testing, `Medium` for backend logic/debug, `High` for DB/auth/upload/release/mixed). Any High or Critical risk mandates `ESCALATE`. |
-| **Agents** | Selected from repository-observed agent roles (`architect.md`, `developer.md`, `reviewer.md`, `tester.md`, `security.md`) matched to the category. |
-| **Skills** | Derived from category recommended skills (`java-web`, `python`, `database`, `frontend`, `release`) and optional repository inspection (e.g., source file layout or optional `.ai/CONTEXT.md` if present, without AI-specific project assumptions). For `MIXED`, resolves to the union of participating category skills. |
-| **Test Tier** | Inferred from category default test tier (`Tier 0` to `Tier 4`) per `core/TEST_POLICY.md`. |
-| **Allowlist** | If omitted, bounded to referenced paths or project workspace. |
-| **Constraints** | Core safety invariants apply unconditionally. |
-
-### Precedence and Escalation Rules
-1. **Explicit Field Precedence**: Explicit user values (`RISK:`, `ALLOWLIST:`, `CONSTRAINTS:`) unconditionally override inferred values. Explicit `RISK: High` or `RISK: Critical` mandates an immediate `ESCALATE` outcome and halts execution.
-2. **Path Precedence**: Concrete file paths take precedence over general task keywords.
-3. **Tie / Overlap**: Multi-domain tasks resolve to `MIXED` with skills as the union of participating category skills, resolving to `High` risk and triggering `ESCALATE`.
-4. **Mandatory Escalation (No Guessing)**: Ambiguous, contradictory, unknown-scope, or High/Critical-risk tasks MUST produce an explicit `ESCALATE` outcome and halt immediately for human clarification/confirmation. Never guess, assume missing intent, or default to `MODE: AUDIT`. Category/default mappings provide provisional context only, never authorization to execute. When classification returns `ESCALATE`, the standard response uses `STATUS: BLOCKED` and `NEXT` requests human clarification or confirmation.
-
----
-
-## 3. Preserved Safety Invariants
-
-Task classification and automatic inference never relax security or version control boundaries:
-
-- **No Mutating Git Permissions**: Classification NEVER grants permission for `git add`, `git commit`, `git push`, `git tag`, `git reset`, `git restore`, or `git clean`.
-- **No Deployment**: Automated continuous deployment and remote releases are strictly forbidden.
-- **No Destructive Database Operations**: Automated `DROP TABLE`, `TRUNCATE`, destructive migrations, or production data wiping are strictly prohibited.
-- **Human Git Boundary**: All staging, committing, branch management, and releases remain exclusive human responsibilities.
-- **Mandatory Repository Verification Gate**: Before completing any task, the agent must execute:
-  1. `git status --short`
-  2. `git diff --name-only`
-  3. `git diff --check`
-  Authoritative priority order: `actual workspace > git diff > worker artifacts`.
-- **Standard Output Contract**: Every completion response must conclude with:
+- **Mandatory Allowlist**: Write tasks require explicit non-empty `ALLOWLIST`; write operations without an allowlist are blocked.
+- **Human Authority**: Exclusive human approval for `git add`, `git commit`, `git push`, `git tag`, deployments, and releases.
+- **Output Contract**: Normalized completion block with mandatory repository-state checks (`git status --short`, `git diff --name-only`, `git diff --check`):
   ```text
-  STATUS: <COMPLETED | IN_PROGRESS | WARNING | BLOCKED | FAILED>
-  CHANGED: <List of modified files, or NONE>
-  TEST: <Summary of test commands and results>
-  RISK: <Identified risks or assumptions>
-  NEXT: <Recommended next action for human>
+  STATUS: <PASS | FAIL | BLOCKED | UNVERIFIED>
+  CHANGED: <List of modified file paths relative to project root verified via git status/diff, or NONE>
+  TEST: <Executed test/verification command(s) and results summary>
+  RISK: <Identified risks, caveats, or residual uncertainties>
+  NEXT: <Recommended next action for human engineer or subsequent phase>
   ```

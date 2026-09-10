@@ -76,7 +76,133 @@ if ($missingFiles.Count -gt 0) {
     $passes.Add("Required files present: $($requiredFiles -join ', ')")
 }
 
-# Check 3: Shortcut names documented
+# Check 2b: Canonical routing contract fields in core/TASK_TEMPLATE.md
+$contractFile = Join-Path $repoRoot "core\TASK_TEMPLATE.md"
+if (Test-Path -LiteralPath $contractFile -PathType Leaf) {
+    $contractText = Get-Content -LiteralPath $contractFile -Raw
+    $requiredContractFields = @('INTENT', 'RISK', 'TARGET', 'ALLOWLIST', 'REVIEW', 'TEST')
+    $missingContractFields = @()
+    foreach ($field in $requiredContractFields) {
+        if ($contractText -notmatch ('(?m)^\s*' + [regex]::Escape($field) + ':')) {
+            $missingContractFields += $field
+        }
+    }
+    if ($missingContractFields.Count -gt 0) {
+        $fails.Add("Canonical routing contract in core/TASK_TEMPLATE.md missing field(s): $($missingContractFields -join ', ')")
+    } else {
+        $passes.Add("Canonical routing contract verified in core/TASK_TEMPLATE.md ($($requiredContractFields -join ', '))")
+    }
+
+    if ($contractText -match 'STATUS:\s*<PASS\s*\|\s*FAIL\s*\|\s*BLOCKED\s*\|\s*UNVERIFIED>') {
+        $passes.Add("Normalized task output contract verified in core/TASK_TEMPLATE.md")
+    } else {
+        $fails.Add("Normalized task output contract missing or incorrect in core/TASK_TEMPLATE.md")
+    }
+
+    $codexMatch = [regex]::Match($contractText, '(?m)^\|\s*\*\*Native Codex\*\*\s*\|\s*([^|]+)\|')
+    $agMatch = [regex]::Match($contractText, '(?m)^\|\s*\*\*Antigravity\*\*\s*\|\s*([^|]+)\|')
+
+    $hasSupersededSingleFile = ($contractText -match '(?m)\|\s*\*\*Native Codex\*\*.*one existing file')
+    $codexScope = if ($codexMatch.Success) { $codexMatch.Groups[1].Value.Trim() } else { '' }
+    $agScope = if ($agMatch.Success) { $agMatch.Groups[1].Value.Trim() } else { '' }
+
+    # Native write scope must remain read-only analysis/verification plus documentation or non-executable artifact writes
+    $codexHasReadOnly = ($codexScope -match '(?i)read-only' -and ($codexScope -match '(?i)analysis' -or $codexScope -match '(?i)verification'))
+    $codexHasDocOrNonExec = ($codexScope -match '(?i)documentation' -or $codexScope -match '(?i)non-executable artifact')
+    $codexScopeValid = ($codexHasReadOnly -and $codexHasDocOrNonExec)
+
+    # All behavior-changing repository modifications route to Antigravity
+    $agHasBehaviorChanging = ($agScope -match '(?i)all behavior-changing repository modifications' -or ($agScope -match '(?i)behavior-changing' -and $agScope -match '(?i)modifications'))
+
+    # Validator rejects Native Codex write permissions for source code, tests, runtime configuration, database changes, build files, and executable scripts
+    $prohibitedWriteFound = $false
+    $prohibitedReasons = @()
+
+    if ($hasSupersededSingleFile) {
+        $prohibitedWriteFound = $true
+        $prohibitedReasons += "superseded single-file write boundary"
+    }
+
+    $codexSentences = $codexScope -split '[.;]'
+    foreach ($sentence in $codexSentences) {
+        $trimmed = $sentence.Trim()
+        if ($trimmed -and $trimmed -notmatch '(?i)\b(must not|does not|do not|no\b|never\b|not make)\b') {
+            if ($trimmed -match '(?i)\b(writes?|modify|modifies|modifications?|edits?|mutat\w*|permissions?)\b') {
+                if ($trimmed -match '(?i)(?<!non-)\b(source|tests?|runtime|config|configuration|database|schema|build|(?<!non-)executable|scripts?)\b') {
+                    $prohibitedWriteFound = $true
+                    $prohibitedReasons += $trimmed
+                }
+            }
+        }
+    }
+
+    if (-not $prohibitedWriteFound -and $codexScopeValid -and $agHasBehaviorChanging) {
+        $passes.Add("Canonical provider boundaries verified in core/TASK_TEMPLATE.md (Native Codex read-only/documentation/non-executable, Antigravity behavior-changing modifications)")
+    } else {
+        if ($prohibitedWriteFound) {
+            $fails.Add("Canonical core/TASK_TEMPLATE.md rejects Native Codex write permissions: $($prohibitedReasons -join '; ')")
+        }
+        if (-not $codexScopeValid) {
+            $fails.Add("Canonical core/TASK_TEMPLATE.md Native Codex scope must be limited to read-only analysis/verification and documentation or non-executable artifact writes")
+        }
+        if (-not $agHasBehaviorChanging) {
+            $fails.Add("Canonical core/TASK_TEMPLATE.md missing Antigravity behavior-changing repository modifications boundary")
+        }
+    }
+}
+
+# Check 2c: Operational mode prompts consume canonical six fields
+$modePrompts = @(
+    'prompts/implement.md',
+    'prompts/review.md',
+    'prompts/audit.md',
+    'prompts/debug.md',
+    'prompts/release.md'
+)
+$missingPromptFields = @()
+$requiredContractFields = @('INTENT', 'RISK', 'TARGET', 'ALLOWLIST', 'REVIEW', 'TEST')
+foreach ($mp in $modePrompts) {
+    $mpNorm = $mp -replace '/', [System.IO.Path]::DirectorySeparatorChar
+    $mpPath = Join-Path $repoRoot $mpNorm
+    if (-not (Test-Path -LiteralPath $mpPath -PathType Leaf)) {
+        $missingPromptFields += "$mp (file missing)"
+        continue
+    }
+    $mpContent = Get-Content -LiteralPath $mpPath -Raw
+    foreach ($field in $requiredContractFields) {
+        if ($mpContent -notmatch ('\b' + [regex]::Escape($field) + '\b')) {
+            $missingPromptFields += "$mp (missing $field)"
+        }
+    }
+}
+if ($missingPromptFields.Count -gt 0) {
+    $fails.Add("Operational mode prompts missing canonical contract fields: $($missingPromptFields -join ', ')")
+} else {
+    $passes.Add("All mode prompts consume canonical six fields ($($modePrompts.Count) prompts verified: $($requiredContractFields -join ', '))")
+}
+
+# Check 2d: Operational prompts do not contain legacy task-input names
+$promptsDir = Join-Path $repoRoot "prompts"
+$legacyTokens = @('GOAL', 'FORBIDDEN_ACTIONS', 'ACCEPTANCE_CRITERIA', 'GATES')
+$legacyFound = @()
+if (Test-Path -LiteralPath $promptsDir -PathType Container) {
+    $promptFiles = Get-ChildItem -LiteralPath $promptsDir -Filter *.md -File
+    foreach ($pf in $promptFiles) {
+        $pfContent = Get-Content -LiteralPath $pf.FullName -Raw
+        foreach ($lt in $legacyTokens) {
+            if ($pfContent -cmatch ('\b' + [regex]::Escape($lt) + '\b')) {
+                $legacyFound += "$($pf.Name) ($lt)"
+            }
+        }
+    }
+}
+if ($legacyFound.Count -gt 0) {
+    $fails.Add("Legacy task-input field name(s) found in prompts/: $($legacyFound -join ', ')")
+} else {
+    $passes.Add("No legacy task-input names (GOAL, FORBIDDEN_ACTIONS, ACCEPTANCE_CRITERIA, GATES) found in prompts/")
+}
+
+# Check 3: Shortcut names, six-field expansion, and /fix boundary documented
 $expectedShortcuts = @('/fix', '/feature', '/debug', '/audit', '/review', '/test', '/release', '/ui', '/db', '/security')
 $shortcutsFile = Join-Path $repoRoot "prompts\shortcuts.md"
 if (Test-Path -LiteralPath $shortcutsFile -PathType Leaf) {
@@ -84,8 +210,7 @@ if (Test-Path -LiteralPath $shortcutsFile -PathType Leaf) {
     $missingShortcuts = @()
     foreach ($sc in $expectedShortcuts) {
         $scEsc = [regex]::Escape($sc)
-        $pattern = '(\|\s*`?' + $scEsc + '`?\s*\||\b' + $scEsc + ')'
-        if ($scText -notmatch [regex]::Escape($sc)) {
+        if ($scText -notmatch $scEsc) {
             $missingShortcuts += $sc
         }
     }
@@ -93,6 +218,19 @@ if (Test-Path -LiteralPath $shortcutsFile -PathType Leaf) {
         $fails.Add("Undocumented shortcut name(s) in prompts/shortcuts.md: $($missingShortcuts -join ', ')")
     } else {
         $passes.Add("All shortcut names documented in prompts/shortcuts.md ($($expectedShortcuts -join ', '))")
+    }
+
+    $hasExpansion = ($scText -match '(?i)six-field expansion|expand(s)? to all six')
+    $hasFixBoundary = ($scText -match '(?i)/fix.*boundary' -and $scText -match 'Native Codex' -and $scText -match 'Antigravity' -and $scText -match 'ChatWeb')
+    if (-not $hasExpansion) {
+        $fails.Add("prompts/shortcuts.md does not document six-field expansion rules")
+    } else {
+        $passes.Add("Six-field expansion documented in prompts/shortcuts.md")
+    }
+    if (-not $hasFixBoundary) {
+        $fails.Add("prompts/shortcuts.md does not document deterministic /fix boundary across providers")
+    } else {
+        $passes.Add("Deterministic /fix boundary documented in prompts/shortcuts.md")
     }
 } else {
     $fails.Add("Cannot check shortcuts: prompts/shortcuts.md does not exist")

@@ -75,19 +75,23 @@ Write-Host "Executable    : $resolvedExe"
 
 # 3. Check if Antigravity process exists without port listening
 $runningProcesses = @(Get-Process -Name "*antigravity*" -ErrorAction SilentlyContinue)
+
 if ($runningProcesses.Count -gt 0) {
-    Write-Host "Notice: Antigravity process is running but port $Port is not yet listening. Waiting for port..."
-} else {
-    Write-Host "Launching Antigravity with --remote-debugging-port=$Port..."
-    try {
-        Start-Process -FilePath $resolvedExe -ArgumentList "--remote-debugging-port=$Port"
-    } catch {
-        Write-Error "STATUS: FAIL - Failed to launch Antigravity: $($_.Exception.Message)"
-        exit 1
-    }
+    Write-Host "Antigravity process detected ($($runningProcesses.Count) process(es)), but remote debugging port $Port is not listening."
+    Write-Error "STATUS: FAIL - Antigravity process exists without a usable bridge on port $Port. Force-kill or automatic restart is disabled to protect active work. Please close Antigravity manually and rerun this script, or restart Antigravity with --remote-debugging-port=$Port."
+    exit 1
 }
 
-# 4. Wait for port to become available
+# 4. Safe startup behavior for absent process
+Write-Host "Launching Antigravity with --remote-debugging-port=$Port..."
+try {
+    Start-Process -FilePath $resolvedExe -ArgumentList "--remote-debugging-port=$Port"
+} catch {
+    Write-Error "STATUS: FAIL - Failed to launch Antigravity: $($_.Exception.Message)"
+    exit 1
+}
+
+# 5. Wait for port to become available
 Write-Host "Waiting for TCP port $Port to listen (timeout: $TimeoutSec s)..."
 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 $portReady = $false

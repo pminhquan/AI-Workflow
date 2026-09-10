@@ -4,12 +4,14 @@ This policy governs task delegation, bridge health, and session lifecycle betwee
 
 ## 1. Core Invariant & Delegation Gate
 
-1. **Bridge PASS Mandatory**: A passing bridge check (`STATUS: PASS (READY)`) is strictly required before any delegated Codex or Antigravity task is initiated.
-2. **No Job Submission When Unavailable**: No job submission or task offload is permitted when the Antigravity bridge is unavailable, unverified, or in a `FAILED` or `STALE` state.
-3. **Pre-Delegation Verification**: The pre-delegation workflow must always:
+1. **Antigravity-Only Requirement**: The Antigravity bridge is required **only** for Antigravity work: all behavior-changing repository modifications, including single-file changes, source, tests, UI/runtime, dependencies, configuration, schema, security, upload, and release work. Native Codex handles only read-only analysis, verification, and documentation/non-executable artifact writes; ChatWeb handles planning. Missing or uncertain Antigravity readiness blocks **only** that lane.
+2. **Bridge PASS Mandatory for Antigravity**: A passing bridge check (`STATUS: PASS (READY)`) is strictly required before any delegated Antigravity task is initiated.
+3. **No Antigravity Job Submission When Unavailable**: No job submission or task offload to Antigravity is permitted when the Antigravity bridge is unavailable, unverified, or in a `FAILED` or `STALE` state.
+4. **Pre-Delegation Verification**: Before dispatching tasks to the Antigravity lane:
    - Ensure Antigravity is active on port 9222 via `scripts/start-antigravity.ps1`.
    - Verify bridge health and endpoint responsiveness via `scripts/bridge-check.ps1`.
-   - Block execution immediately if the bridge readiness status is not `PASS`.
+   - Block Antigravity lane execution immediately if the bridge readiness status is not `PASS`.
+
 
 ## 2. Bridge Readiness States
 

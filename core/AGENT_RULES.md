@@ -9,7 +9,7 @@
 AI agents are strictly forbidden from performing the following actions:
 1. **No Automatic Git Mutations**: Never run or script `git add`, `git commit`, `git push`, `git tag`, `git reset`, `git restore`, `git checkout -f`, `git clean`, `git rebase`, `git merge`, or `git stash drop`.
 2. **No Automatic Deployment**: Never trigger continuous deployment pipelines, production deployments, container publishing, or remote server mutation.
-3. **No Unbounded File Access**: Never inspect, read, write, or modify files outside the explicitly assigned project workspace or designated task allowlist.
+3. **No Unbounded File Access (Mandatory Allowlist)**: Never inspect, read, write, or modify files outside the explicitly assigned project workspace or designated task allowlist. Every write task requires an explicit, non-empty `ALLOWLIST`; write operations without an allowlist are strictly prohibited.
 4. **No Speculative Abstractions**: Never introduce unrequested abstractions, unneeded design patterns, superfluous wrapper layers, or unsolicited refactoring.
 5. **No Unrequested Dependencies**: Never add third-party libraries or external packages when standard libraries or existing project utilities suffice.
 6. **No Secret or Credential Leakage**: Never write passwords, API keys, tokens, credentials, or personal system paths into code, documentation, or configuration.
@@ -25,32 +25,39 @@ AI agents are strictly forbidden from performing the following actions:
 3. **Root Cause Resolution**:
    - For bug fixes and debugging, address the root cause rather than patching individual symptom locations.
    - Check all callers and shared functions to prevent partial fixes and regressions.
-4. **Verification Requirement**:
-   - Non-trivial code changes must be verified against the project test policy before marking completion.
+4. **Focused Verification Requirement**:
+   - Validate non-trivial code changes with focused tests matching the required test tier (`core/TEST_POLICY.md`).
+   - Target only the modified behavior and immediate boundaries without running unnecessary monolithic suites.
    - Provide concrete, reproducible test results or verification evidence.
 5. **Mandatory Final Repository-State Gate**:
    - Before returning `STATUS`, always run `git status --short`, `git diff --name-only`, and `git diff --check`.
    - Actual workspace state is the authoritative source of truth, with priority: `actual workspace > git diff > worker artifacts`.
    - Never claim 'No files changed' without checking the target repository.
-   - When worker artifacts and repository state differ, return `STATUS: WARNING` (not BLOCKED) and include artifact state, actual git state, and recommended action.
+   - When worker artifacts and repository state differ, return `STATUS: FAIL` or `STATUS: UNVERIFIED` and include artifact state, actual git state, and recommended action.
 
-## 4. Agent Modes
-Every task must execute under one of the following explicit modes:
+## 4. Provider Routing & Agent Modes
+Tasks route across three providers (Native Codex, ChatWeb, Antigravity) governed by the canonical routing contract in [`core/TASK_TEMPLATE.md`](TASK_TEMPLATE.md) and procedure in [`core/TASK_CLASSIFICATION.md`](TASK_CLASSIFICATION.md).
+
+- **Native Codex**: Read-only analysis, verification, and documentation/non-executable artifact writes only. It does not make behavior-changing repository modifications, including source, test, UI, runtime, dependency, schema, security, upload, or behavior-affecting configuration changes.
+- **ChatWeb**: Planning and trade-off analysis only; no file modifications.
+- **Antigravity**: All behavior-changing repository modifications, including single-file changes, are delegated here after bridge readiness is verified.
+
+Every task executes under one of the explicit modes:
 - **AUDIT**: Read-only evaluation of architecture, security, code quality, or operational readiness. No code modifications.
-- **IMPLEMENT**: Focused code and test implementation strictly within the designated allowlist and acceptance criteria.
+- **IMPLEMENT**: Behavior-changing implementation delegated to Antigravity, strictly within the designated allowlist and acceptance criteria.
 - **REVIEW**: Objective assessment of code diffs, compliance with requirements, verification rigor, and risk identification.
-- **DEBUG**: Targeted investigation, reproduction, root-cause diagnosis, and minimal surgical fix for a reported defect.
+- **DEBUG**: Targeted investigation, reproduction, and root-cause diagnosis only; no behavior-changing edits.
 - **RELEASE_CHECK**: Read-only verification of release gates, test tier compliance, artifact presence, and clean working tree.
 
 ## 5. Standard Output Contract
 Every agent completion response must include the standard output block:
 
 ```text
-STATUS: <COMPLETED | IN_PROGRESS | WARNING | BLOCKED | FAILED>
-CHANGED: <List of modified file paths relative to project root, or NONE>
+STATUS: <PASS | FAIL | BLOCKED | UNVERIFIED>
+CHANGED: <List of modified file paths relative to project root verified via git status/diff, or NONE>
 TEST: <Summary of verification commands executed and results, e.g., PASS (X passed, Y failed)>
 RISK: <Concise description of identified risks, edge cases, or potential regressions>
 NEXT: <Specific recommended next action for human engineer or subsequent task phase>
 ```
 
-When worker artifacts and repository state differ, return `STATUS: WARNING` (not BLOCKED) and include artifact state, actual git state, and recommended action.
+When worker artifacts and repository state differ, return `STATUS: FAIL` or `STATUS: UNVERIFIED` and include artifact state, actual git state, and recommended action.

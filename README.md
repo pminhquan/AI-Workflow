@@ -1,59 +1,38 @@
-## Daily Usage
+## Provider Routing & Canonical Contract
 
-For rapid daily handoff, the framework provides 10 compact workflow shortcuts documented in `prompts/shortcuts.md`: `/fix`, `/feature`, `/debug`, `/audit`, `/review`, `/test`, `/release`, `/ui`, `/db`, `/security`.
+Tasks route across three providers (Native Codex, ChatWeb, Antigravity) governed by the canonical six-field contract and provider routing defined in [`core/TASK_TEMPLATE.md`](core/TASK_TEMPLATE.md) and procedure in [`core/TASK_CLASSIFICATION.md`](core/TASK_CLASSIFICATION.md).
 
-Shortcuts use minimal input:
+Provider boundary:
 
-```text
-PROJECT: <PROJECT_PATH>
-TASK: <goal>
-```
+- **Native Codex**: read-only analysis and verification, plus documentation/non-executable artifact writes only.
+- **ChatWeb**: planning and trade-off analysis only; no file modifications.
+- **Antigravity**: all behavior-changing repository modifications, including single-file source, test, UI, runtime, configuration, and dependency changes.
 
-Optional:
+> [!IMPORTANT]
+> The Antigravity bridge is required **only** for Antigravity work. Missing or uncertain Antigravity readiness blocks **only** that lane; Native Codex and ChatWeb lanes continue unaffected.
 
-```text
-RISK:
-ALLOWLIST:
-CONSTRAINTS:
-```
+### Daily Usage & Shortcuts
 
-Execution parameters (`MODE`, `RISK`, `AGENTS`, `SKILLS`, `GATES`) are derived through canonical policies:
+For rapid daily handoff, the framework provides 10 compact workflow shortcuts documented in [`prompts/shortcuts.md`](prompts/shortcuts.md): `/fix`, `/feature`, `/debug`, `/audit`, `/review`, `/test`, `/release`, `/ui`, `/db`, `/security`.
 
-- `core/TASK_CLASSIFICATION.md`
-- `core/TEST_POLICY.md`
-- `core/AGENT_RULES.md`
-- `core/GIT_POLICY.md`
-- optional project `.ai/CONTEXT.md`
-
-High-risk tasks, ambiguous scope, contradictory requirements, or destructive operations must escalate before execution.
-
-### Examples
+Shortcuts serve as thin compatibility aliases that map directly into the canonical fields (`INTENT`, `RISK`, `TARGET`, `ALLOWLIST`, `REVIEW`, `TEST`):
 
 ```text
-/fix PROJECT: <PROJECT_PATH> TASK: Fix avatar upload
-
-/ui PROJECT: <PROJECT_PATH> TASK: Improve navbar spacing
-
-/audit PROJECT: <PROJECT_PATH> SCOPE: authentication
-
-/release PROJECT: <PROJECT_PATH>
+<shortcut>
+INTENT: <objective>
+RISK: <Low | Medium | High | Critical>
+TARGET: <project-path>
+ALLOWLIST: <mandatory for writes, or NONE>
+REVIEW: <SELF | PEER | HUMAN>
+TEST: <focused verification command, tier, or evidence>
 ```
+Shorthand inputs expand deterministically to all six canonical fields using row defaults from [`prompts/shortcuts.md`](prompts/shortcuts.md) for `RISK`, `REVIEW`, and `TEST` (`ALLOWLIST: NONE` for read-only aliases; missing write `ALLOWLIST` blocks execution).
 
-Safety invariants:
+### Safety Invariants & Governance
 
-- Shortcuts never grant permission for `git add`, `git commit`, `git push`, `git tag`, deployment, destructive database operations, or secret access.
-- Human engineer remains the authority for Git operations and release decisions.
-- Repository verification is mandatory before completion.
-
-The mandatory repository verification gate:
-
-```powershell
-git status --short
-git diff --name-only
-git diff --check
-```
-
-must execute before reporting completion.
+- **Write Allowlists**: Explicit and mandatory for all write tasks. Modifying files outside the allowlist is prohibited.
+- **Human Authority**: Human engineers hold exclusive authority for `git add`, `git commit`, `git push`, `git tag`, deployments, and releases ([`core/GIT_POLICY.md`](core/GIT_POLICY.md)).
+- **Repository Verification Gate**: Before completing any task, execute `git status --short`, `git diff --name-only`, and `git diff --check` (priority: `actual workspace > git diff > worker artifacts`; if mismatch, report `STATUS: FAIL` or `STATUS: UNVERIFIED`).
 
 ---
 
@@ -62,7 +41,7 @@ must execute before reporting completion.
 All AI responses must conclude with or conform to:
 
 ```text
-STATUS: <COMPLETED | IN_PROGRESS | WARNING | BLOCKED | FAILED>
+STATUS: <PASS | FAIL | BLOCKED | UNVERIFIED>
 CHANGED: <Comma-separated list of modified files, or NONE>
 TEST: <Executed test commands and summary of results>
 RISK: <Identified risks, regressions, or assumptions>
@@ -103,12 +82,12 @@ to inspect project context and suggested skills.
 
 ### 2. Define the Task
 
-Use either:
+Use:
 
-- `core/QUICK_TASK_TEMPLATE.md` for normal daily tasks
-- `core/TASK_TEMPLATE.md` for detailed tasks
+- `core/TASK_TEMPLATE.md` for the canonical routing contract
+- `core/QUICK_TASK_TEMPLATE.md` as a thin compatibility alias for quick handoffs
 
-The workflow derives missing execution parameters through deterministic classification rules.
+The workflow routes tasks deterministically based on [`core/TASK_CLASSIFICATION.md`](core/TASK_CLASSIFICATION.md).
 
 ---
 
@@ -149,7 +128,7 @@ Changes must:
 
 - stay inside the approved allowlist
 - follow minimal-change principles
-- execute the required test tier from `core/TEST_POLICY.md`
+- execute focused tests matching the required tier from `core/TEST_POLICY.md`
 
 ---
 
@@ -192,9 +171,9 @@ AI agents must not perform automatic Git mutations.
 
 ---
 
-## Before delegating tasks
+## Before delegating tasks to Antigravity
 
-Before delegating tasks to Codex or Antigravity, ensure the bridge session is active, healthy, and verified:
+The bridge is required **only** for Antigravity work. Before delegating tasks to Antigravity, ensure the bridge session is active, healthy, and verified:
 
 1. **Launch or verify Antigravity bridge**:
    ```powershell
@@ -209,7 +188,7 @@ Before delegating tasks to Codex or Antigravity, ensure the bridge session is ac
    Confirm that the check outputs `STATUS: PASS (READY)`.
 
 3. **Submit jobs**:
-   Submit tasks or delegate jobs only after verifying bridge `PASS`.
+   Submit tasks or delegate jobs to Antigravity only after verifying bridge `PASS`.
    Per `core/BRIDGE_POLICY.md`, job submission is prohibited when the bridge is in a `FAILED` or `STALE` state.
 
 4. **Bridge Recovery**:

@@ -1,7 +1,7 @@
 # Agent Role: Developer
 
 ## Overview
-The Developer agent implements scoped code modifications, enhancements, and bug fixes under the guidance of task contracts. The Developer adheres strictly to the principle of least change and produces verifiable evidence for all modifications.
+The Developer agent implements scoped behavior-changing repository modifications, enhancements, and bug fixes in the Antigravity execution lane under the guidance of task contracts. The Developer adheres strictly to the principle of least change and produces verifiable evidence for all modifications. This role does not authorize Native Codex to change repository behavior.
 
 ## Role Responsibilities
 

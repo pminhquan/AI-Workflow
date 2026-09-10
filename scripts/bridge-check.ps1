@@ -79,7 +79,7 @@ if ($portListening) {
     $fails.Add("DevTools endpoint skipped because port $Port is not listening")
 }
 
-# 4. Check page count > 0 and stale-session symptoms
+# 4. Check usable session: active page count > 0 with usable webSocketDebuggerUrl and non-blank URL
 if ($devToolsReady) {
     $listUrl = "http://${HostAddress}:${Port}/json"
     try {
@@ -87,26 +87,34 @@ if ($devToolsReady) {
         $pageTargets = @($targets | Where-Object { $_.type -eq 'page' })
 
         if ($pageTargets.Count -gt 0) {
-            $passes.Add("Active page count > 0 ($($pageTargets.Count) page target(s) detected)")
+            $usableTargets = @($pageTargets | Where-Object {
+                $_.webSocketDebuggerUrl -and
+                -not [string]::IsNullOrWhiteSpace($_.webSocketDebuggerUrl) -and
+                $_.url -and
+                $_.url -ne 'about:blank' -and
+                -not [string]::IsNullOrWhiteSpace($_.url)
+            })
 
-            # Inspect for stale-session symptoms
-            $wsAvailable = @($pageTargets | Where-Object { $_.webSocketDebuggerUrl })
-            if ($wsAvailable.Count -eq 0) {
-                $warns.Add("Stale-session symptom: pages exist but none expose a valid webSocketDebuggerUrl")
-            }
-
-            $blankCount = @($pageTargets | Where-Object { $_.url -eq 'about:blank' -or [string]::IsNullOrWhiteSpace($_.url) }).Count
-            if ($blankCount -eq $pageTargets.Count) {
-                $warns.Add("Stale-session symptom: all detected page targets are blank or uninitialized")
+            if ($usableTargets.Count -gt 0) {
+                $passes.Add("Usable session verified ($($usableTargets.Count) active non-blank page target(s) exposing webSocketDebuggerUrl)")
+            } else {
+                $wsAvailable = @($pageTargets | Where-Object { $_.webSocketDebuggerUrl -and -not [string]::IsNullOrWhiteSpace($_.webSocketDebuggerUrl) })
+                if ($wsAvailable.Count -eq 0) {
+                    $fails.Add("Unusable session: page targets exist but none expose a valid webSocketDebuggerUrl")
+                } else {
+                    $fails.Add("Unusable session: all detected page targets are blank or uninitialized (about:blank)")
+                }
             }
         } elseif ($targets.Count -gt 0) {
-            $warns.Add("DevTools targets detected ($($targets.Count)) but no page-type target found")
+            $fails.Add("Unusable session: DevTools targets detected ($($targets.Count)) but no page-type target found")
         } else {
-            $fails.Add("Page count is 0 (no DevTools pages detected; session may be detached or stale)")
+            $fails.Add("Unusable session: page count is 0 (no DevTools pages detected; session may be detached or stale)")
         }
     } catch {
         $fails.Add("Failed to query DevTools page targets at ($listUrl): $($_.Exception.Message)")
     }
+} else {
+    $fails.Add("Session readiness check skipped because DevTools endpoint is not ready")
 }
 
 # 5. Output PASS / WARN / FAIL sections and readiness status
@@ -135,9 +143,6 @@ if ($fails.Count -gt 0) {
 Write-Host "`nREADINESS STATUS:"
 if ($fails.Count -eq 0 -and $warns.Count -eq 0) {
     Write-Host "STATUS: PASS (READY)"
-    exit 0
-} elseif ($fails.Count -eq 0) {
-    Write-Host "STATUS: PASS (READY with warnings)"
     exit 0
 } else {
     Write-Host "STATUS: FAIL (NOT READY)"
