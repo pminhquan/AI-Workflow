@@ -78,6 +78,14 @@ Run:
 
 to inspect project context and suggested skills.
 
+For deterministic Phase 2.1 project memory context loading, run:
+
+```powershell
+./scripts/context-loader.ps1 -Project "<PROJECT>" -Task "<TASK_DESCRIPTION>"
+```
+
+to select and load project memory files (`projects/<project>/*.md`) based on task classification or manual `@load` overrides.
+
 ---
 
 ### 2. Define the Task
@@ -139,6 +147,8 @@ Use workflow validation scripts:
 ```text
 scripts/
 ├── bridge-check.ps1
+├── context-loader-check.ps1
+├── context-loader.ps1
 ├── diff-check.ps1
 ├── git-check.ps1
 ├── load-context.ps1

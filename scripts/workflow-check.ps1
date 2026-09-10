@@ -359,6 +359,8 @@ $expectedComponents = @(
     'prompts/review.md',
     'prompts/shortcuts.md',
     'scripts/bridge-check.ps1',
+    'scripts/context-loader-check.ps1',
+    'scripts/context-loader.ps1',
     'scripts/diff-check.ps1',
     'scripts/git-check.ps1',
     'scripts/load-context.ps1',
