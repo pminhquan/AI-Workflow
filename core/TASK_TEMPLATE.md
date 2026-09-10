@@ -44,7 +44,7 @@ Tasks route deterministically to one of three providers:
 > [!IMPORTANT]
 > The bridge is required **only** for Antigravity work. Missing or uncertain Antigravity readiness blocks **only** that lane; Native Codex and ChatWeb lanes continue unaffected.
 
-**Routing boundary:** If a task changes repository behavior, route the implementation to Antigravity even when the change touches only one file. Native Codex may prepare the analysis or request and may write only documentation/non-executable artifacts.
+**Routing boundary:** If a task changes repository behavior, route the implementation to Antigravity even when the change touches only one file. Native Codex may prepare the analysis or request and may write only documentation/non-executable artifacts. For structured task handoff lifecycle and cross-provider delegation, see [`workflows/handoff.md`](../workflows/handoff.md).
 
 ---
 
