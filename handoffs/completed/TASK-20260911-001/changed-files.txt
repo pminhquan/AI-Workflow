@@ -1,0 +1,4 @@
+apps/markitdown_gui/converter.py
+apps/markitdown_gui/export/ai_package_exporter.py
+apps/markitdown_gui/output/ownership.py
+apps/markitdown_gui/worker.py
