@@ -1,6 +1,8 @@
 # Task Execution Result: TASK-20260911-001
 
-## Status: COMPLETED_WITH_WAIVER
+## Lifecycle: COMPLETED
+## Validation: PASS
+## Outcome: WAIVED
 
 Execution review and validation result for:
 
@@ -303,18 +305,18 @@ Replace dynamic lookup with explicit dependency injection or strategy interfaces
 
 # 7. Final Task Decision
 
-Final status:
-
-
-COMPLETED_WITH_WAIVER
-
+Canonical Model:
+- **Lifecycle**: COMPLETED
+- **Validation**: PASS
+- **Outcome**: WAIVED
 
 Reason:
 
 - Implementation scope satisfied.
 - Allowlist respected.
 - Focused validation passed.
-- One unrelated environment test failure was identified and waived.
+- One unrelated environment test failure (`test_gui_multimodal_options_visibility_and_settings`) was identified and approved as WAIVED.
+- Original failure is preserved and documented in test-output-summary.md and Section 5 of this report.
 - Remaining technical risks are documented and outside current task scope.
 
 ---

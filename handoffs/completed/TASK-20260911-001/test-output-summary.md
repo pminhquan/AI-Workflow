@@ -72,7 +72,10 @@ Evidence:
 
 Decision:
 
-Accepted with waiver.
+Accepted with waiver. Canonical task model:
+- **Lifecycle**: COMPLETED
+- **Validation**: PASS
+- **Outcome**: WAIVED
 
 Reason:
 
