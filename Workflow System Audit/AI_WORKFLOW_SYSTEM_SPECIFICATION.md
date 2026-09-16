@@ -25,7 +25,7 @@ The AI Workflow framework coordinates collaborative software engineering across 
 5. **Accidental Git State Corruption**: AI tools must never autonomously commit, push, or rewrite repository history. Human engineers hold exclusive Git mutation authority (`core/GIT_POLICY.md:5-23`).
 
 ### 1.3 Main Design Principles
-- **Minimize Unnecessary Context**: Read only strictly relevant lines and files. Context loader limits returned content to 200 lines and 16,384 UTF-16 string units plus truncation notices (`scripts/context-loader.ps1:28-29`), loading specialized memory files only when task classification warrants (`D:\AI\codex-anti\core\principles.md:9`).
+- **Minimize Unnecessary Context**: Read only strictly relevant lines and files. Context loader limits returned content to 200 lines and 16,384 UTF-16 string units plus truncation notices (`scripts/context-loader.ps1:28-29`), loading specialized memory files only when task classification warrants (`codex-anti core principles documentation:9`).
 - **Deterministic Routing**: Every incoming task is evaluated against a canonical six-field contract (`INTENT`, `RISK`, `TARGET`, `ALLOWLIST`, `REVIEW`, `TEST`). Missing required fields block execution (`core/TASK_TEMPLATE.md:7-18`).
 - **Evidence-Based Verification**: Completion claims require reproducible, verifiable artifacts (`status.json`, `result.md`, `changed-files.txt`, `diff.patch`, `test-output-summary.md`). Actual workspace state strictly takes precedence over worker claims: `actual workspace > git diff > worker artifacts` (`core/TASK_TEMPLATE.md:55`).
 - **Avoid Unnecessary Complexity (YAGNI & Ponytail Principle)**: File-based workflow governance using PowerShell checks, Markdown, and JSON; the external MCP bridge additionally uses Node.js and DevTools. Strictly no vector databases, no background daemon services, no persistent message queues, and no autonomous agent schedulers (`workflows/handoff.md:112-117`).
@@ -178,7 +178,7 @@ Project memory is centralized under a single authoritative memory root:
 - **Invariant**: Strictly zero repo-local fallback paths; prevents memory fragmentation and out-of-sync context trees (`scripts/context-loader.ps1:32`).
 
 ### 6.2 Context Delivery Hierarchy
-Context flows through a five-tier hierarchy from general to specific (`D:\AI\codex-anti\core\context-rules.md:26-30`):
+Context flows through a five-tier hierarchy from general to specific (`codex-anti context loading rules documentation:26-30`):
 
 ```text
 Global Rules (core/AGENT_RULES.md, GIT_POLICY.md, TASK_TEMPLATE.md)
