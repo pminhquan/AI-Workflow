@@ -1,5 +1,5 @@
 # Antigravity runtime artifacts
-.antigravity-bridge/jobs/
+.antigravity-bridge/
 
 # Temporary files
 *.log
