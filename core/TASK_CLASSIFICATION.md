@@ -25,8 +25,12 @@ Evaluate tasks sequentially through five deterministic steps:
 ### Step 1: Evaluate INTENT & Select Provider
 Identify the core objective and assign the appropriate provider (see [`core/TASK_TEMPLATE.md`](TASK_TEMPLATE.md) for full provider definitions):
 - **ChatWeb**: Planning only. Route here for architectural decisions, trade-off analysis, ambiguity, cross-project choices, or unclear scope/risk/acceptance before writing code (no bridge required; no file modifications).
-- **Native Codex**: Direct execution without bridge. Route here for read-only analysis, explanations, repository discovery, verification, and documentation/non-executable artifact writes only. It must not make behavior-changing repository modifications, even when they touch one file.
+- **Native Codex**: Direct execution without bridge (`workflowMode: DIRECT`). Route here for read-only analysis, explanations, repository discovery, verification, and documentation/non-executable artifact writes only. It must not make behavior-changing repository modifications, even when they touch one file.
+  * *Codex-Direct Boundary*: Audit, architecture review, code review, debugging analysis, and validation-only tasks remain strictly Codex-direct (`DIRECT`) and cannot create Antigravity execution jobs unless an implementation step is explicitly requested.
 - **Antigravity**: Delegated desktop execution requiring bridge PASS (`STATUS: PASS (READY)`). Route here for all behavior-changing repository modifications, including single-file and multi-file edits, new files, source, tests, UI/runtime behavior, dependencies, configuration, database schemas/queries, auth/security, file uploads, or release work.
+  * *Workflow Modes*:
+    - **`DELEGATED`**: Defined as Antigravity implementation plus Codex verification. Standard mode for all behavior-changing repository modifications and normal fixes.
+    - **`HYBRID`**: Permitted only when both Codex analysis/review and Antigravity execution are explicitly required. Do not use `HYBRID` for normal fixes.
   * *Lane Isolation Rule*: Missing or uncertain bridge readiness blocks **only** the Antigravity lane; Native Codex and ChatWeb lanes continue unaffected.
 
 ### Step 2: Assess RISK
@@ -47,6 +51,20 @@ Classify the task risk level (`Low`, `Medium`, `High`, `Critical`):
 
 ### Step 5: Determine Focused TEST
 Select targeted tests for modified behavior per [`core/TEST_POLICY.md`](TEST_POLICY.md) (Tier 0 to Tier 4) without executing unnecessary monolithic suites.
+
+### Context Loading Boundary
+Context delivery operates under an explicit three-tier boundary:
+- **Always Active**: Global workflow rules (`core/`) and canonical task contract loaded by the workflow framework; compact project identity (`summary.md`) loaded from authoritative project memory via `scripts/context-loader.ps1`.
+- **Conditionally Loaded**: Specialized project memory files resolved deterministically by `scripts/context-loader.ps1` based on task intent or explicit `@load` overrides:
+  - `feature` / `implement`: `context.md`, `architecture.md`
+  - `bug` / `fix`: `context.md`, `issues.md`
+  - `database` / `db`: `architecture.md`, `decisions.md`
+  - `security`: `architecture.md`, `issues.md`
+  - `planning`: `roadmap.md`
+  - `history` / `release`: `decisions.md`, `changelog.md`
+  - `health` / `audit`: `health.md`
+  - Domain Knowledge: relevant `skills/` module
+- **Execution Artifacts**: Evidence artifacts (`status.json`, `result.md`, `diff.patch`, `test-output-summary.md`) loaded only on-demand during verification or handoff evaluation.
 
 ---
 

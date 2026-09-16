@@ -51,7 +51,7 @@ $ErrorActionPreference = 'Stop'
 function Get-TaskIdentifier {
     param($StatusObj)
     if ($null -eq $StatusObj) { return $null }
-    foreach ($prop in @('task', 'taskId', 'id')) {
+    foreach ($prop in @('jobId', 'task', 'taskId', 'id')) {
         if ($StatusObj.PSObject.Properties[$prop] -and -not [string]::IsNullOrWhiteSpace([string]$StatusObj.$prop)) {
             return ([string]$StatusObj.$prop).Trim()
         }
@@ -235,6 +235,7 @@ function Invoke-EvidenceValidation {
     $statusJsonPath = Join-Path $resolvedEvidenceDir "status.json"
     $statusObj = $null
     $rawStatusJson = ""
+    $isBridgeJob = $false
 
     if (Test-Path -LiteralPath $statusJsonPath -PathType Leaf) {
         $rawStatusJson = Get-Content -LiteralPath $statusJsonPath -Raw
@@ -243,6 +244,20 @@ function Invoke-EvidenceValidation {
         } catch {
             $statusObj = $null
         }
+    }
+
+    # Determine if evidence represents an Antigravity bridge/job execution
+    if (($statusObj -and (
+            $statusObj.PSObject.Properties['jobId'] -or
+            $statusObj.PSObject.Properties['submissionStatus'] -or
+            $statusObj.PSObject.Properties['executionStatus'] -or
+            $statusObj.PSObject.Properties['requestFile'] -or
+            $statusObj.PSObject.Properties['diffFile'] -or
+            $statusObj.PSObject.Properties['mode']
+        )) -or
+        ($resolvedEvidenceDir -match '(?i)[\\/]\.antigravity-bridge[\\/]jobs[\\/]') -or
+        (Test-Path -LiteralPath (Join-Path $resolvedEvidenceDir "request.md") -PathType Leaf)) {
+        $isBridgeJob = $true
     }
 
     # Auto-discover handoff if not provided
@@ -325,6 +340,9 @@ function Invoke-EvidenceValidation {
     # Check 1: Artifact Validation
     # --------------------------------------------------------------------------
     $standardArtifacts = @('status.json', 'result.md', 'changed-files.txt', 'diff.patch')
+    if ($isBridgeJob) {
+        $standardArtifacts += 'request.md'
+    }
     $missingArtifacts = [System.Collections.Generic.List[string]]::new()
     $incompleteArtifacts = [System.Collections.Generic.List[string]]::new()
     $templatePlaceholderPattern = '<\s*(?:objective|target|explicit paths|risk level|pass condition|focused command|verified paths|test output|remaining risk|stable-task-id|ISO-8601|TODO|TBD)\b[^>]*>'
@@ -375,7 +393,11 @@ function Invoke-EvidenceValidation {
         $checkResults['artifact validation'] = 'UNVERIFIED'
         $details['artifact validation'].Add("Incomplete artifact(s): $(@($incompleteArtifacts) -join '; ')")
     } else {
-        $countDesc = if ($hasTestSummary -and $testsRequired) { "5/5 artifacts verified" } else { "4/4 standard artifacts verified (no test summary required)" }
+        $countDesc = if ($hasTestSummary -and $testsRequired) {
+            if ($isBridgeJob) { "6/6 artifacts verified" } else { "5/5 artifacts verified" }
+        } else {
+            if ($isBridgeJob) { "5/5 artifacts verified" } else { "4/4 standard artifacts verified (no test summary required)" }
+        }
         $details['artifact validation'].Add("All required artifacts present and non-empty ($countDesc)")
     }
 
@@ -390,23 +412,230 @@ function Invoke-EvidenceValidation {
         $details['json validation'].Add("status.json is not valid JSON syntax")
     } else {
         $missingProps = [System.Collections.Generic.List[string]]::new()
-        $hasValidationStatus = ($statusObj.PSObject.Properties['validation'] -and -not [string]::IsNullOrWhiteSpace([string]$statusObj.validation)) -or
+        $hasValidationStatus = ($statusObj.PSObject.Properties['validation'] -and (
+                                   ($statusObj.validation -is [string] -and -not [string]::IsNullOrWhiteSpace([string]$statusObj.validation)) -or
+                                   ($statusObj.validation -is [System.Management.Automation.PSCustomObject] -and ($statusObj.validation.PSObject.Properties['aggregate'] -or $statusObj.validation.PSObject.Properties['result']))
+                               )) -or
                                ($statusObj.PSObject.Properties['status'] -and -not [string]::IsNullOrWhiteSpace([string]$statusObj.status))
         if (-not $hasValidationStatus) {
             $missingProps.Add('status')
         }
 
-        # Check for task identifier (priority: task, taskId, id; if none exists: FAIL)
+        # Check for task identifier (priority: jobId, task, taskId, id; if none exists: FAIL)
         $statusTaskId = Get-TaskIdentifier -StatusObj $statusObj
         if (-not $statusTaskId) {
-            $missingProps.Add('task')
+            $missingProps.Add('task/jobId')
+        }
+
+        if ($isBridgeJob) {
+            # Absolute workspace requirement (Windows drive or UNC, not unknown/unspecified)
+            $rawWorkspace = if ($statusObj.PSObject.Properties['workspace'] -and -not [string]::IsNullOrWhiteSpace([string]$statusObj.workspace)) {
+                [string]$statusObj.workspace
+            } else { "" }
+
+            $isAbsoluteWorkspace = ($rawWorkspace -match '^[A-Za-z]:[\\/]' -or $rawWorkspace -match '^\\\\[^\\]+\\[^\\]+') -and
+                                   ($rawWorkspace -notmatch '(?i)\b(unknown|unspecified|tbd)\b')
+            if (-not $isAbsoluteWorkspace) {
+                $missingProps.Add('absolute workspace (Windows drive or UNC, not unknown/unspecified)')
+            }
+
+            # Executor requirement: must be antigravity
+            $rawExecutor = if ($statusObj.PSObject.Properties['executor']) { [string]$statusObj.executor } else { "" }
+            if ([string]::IsNullOrWhiteSpace($rawExecutor) -or $rawExecutor.Trim().ToLowerInvariant() -ne 'antigravity') {
+                $missingProps.Add('executor=antigravity')
+            }
+
+            # Routing decision requirement: whenever Antigravity executes a job, must be DELEGATED (never DIRECT)
+            $rawRouting = if ($statusObj.PSObject.Properties['routingDecision']) { [string]$statusObj.routingDecision } else { "" }
+            if ([string]::IsNullOrWhiteSpace($rawRouting) -or $rawRouting.Trim().ToUpperInvariant() -ne 'DELEGATED') {
+                $missingProps.Add('routingDecision=DELEGATED (never DIRECT for Antigravity execution)')
+            }
+
+            # Workflow mode requirement: whenever Antigravity executes a job, workflowMode must be non-empty and non-DIRECT (e.g. DELEGATED or HYBRID)
+            $rawWorkflowMode = if ($statusObj.PSObject.Properties['workflowMode']) { [string]$statusObj.workflowMode } else { "" }
+            if ([string]::IsNullOrWhiteSpace($rawWorkflowMode) -or $rawWorkflowMode.Trim().ToUpperInvariant() -eq 'DIRECT') {
+                $missingProps.Add('workflowMode (required non-DIRECT delegated path, e.g. DELEGATED or HYBRID)')
+            }
+
+            # Explicit result artifact/file or job folder
+            $hasArtifactLoc = ($statusObj.PSObject.Properties['resultArtifact'] -and -not [string]::IsNullOrWhiteSpace([string]$statusObj.resultArtifact)) -or
+                              ($statusObj.PSObject.Properties['resultFile'] -and -not [string]::IsNullOrWhiteSpace([string]$statusObj.resultFile)) -or
+                              ($statusObj.PSObject.Properties['jobFolder'] -and -not [string]::IsNullOrWhiteSpace([string]$statusObj.jobFolder)) -or
+                              ($statusObj.PSObject.Properties['artifactDirectory'] -and -not [string]::IsNullOrWhiteSpace([string]$statusObj.artifactDirectory))
+            if (-not $hasArtifactLoc) {
+                $missingProps.Add('explicit result artifact/file or job folder')
+            }
+
+            # Canonical lifecycle state: CREATED, SUBMITTED, RUNNING, ARTIFACT_READY, VERIFIED, CLOSED
+            $canonicalLifecycleValues = @('CREATED', 'SUBMITTED', 'RUNNING', 'ARTIFACT_READY', 'VERIFIED', 'CLOSED')
+            $rawLifecycle = ""
+            if ($statusObj.PSObject.Properties['state'] -and -not [string]::IsNullOrWhiteSpace([string]$statusObj.state)) {
+                $rawLifecycle = [string]$statusObj.state
+            } elseif ($statusObj.PSObject.Properties['lifecycle'] -and -not [string]::IsNullOrWhiteSpace([string]$statusObj.lifecycle)) {
+                $rawLifecycle = [string]$statusObj.lifecycle
+            }
+            if ([string]::IsNullOrWhiteSpace($rawLifecycle) -or ($rawLifecycle.ToUpperInvariant() -notin $canonicalLifecycleValues)) {
+                $missingProps.Add("canonical lifecycle state (must be one of: $($canonicalLifecycleValues -join ', '))")
+            }
         }
 
         if (@($missingProps).Count -gt 0) {
             $checkResults['json validation'] = 'FAIL'
             $details['json validation'].Add("status.json missing required property: $(@($missingProps) -join ', ')")
         } else {
-            $details['json validation'].Add("status.json is valid JSON with required properties")
+            $propDesc = if ($isBridgeJob) { "status.json is valid JSON with required bridge execution contract properties" } else { "status.json is valid JSON with required properties" }
+            $details['json validation'].Add($propDesc)
+        }
+
+        # Optional Phase 3.1 Observability Metadata Validation
+        if ($statusObj.PSObject.Properties['observability']) {
+            $obsRaw = $statusObj.observability
+            if ($null -eq $obsRaw -or $obsRaw -isnot [System.Management.Automation.PSCustomObject]) {
+                $checkResults['json validation'] = 'FAIL'
+                $details['json validation'].Add("observability property must be a JSON object")
+            } else {
+                $obsFailures = [System.Collections.Generic.List[string]]::new()
+                $allowedObsKeys = @('context', 'handoff', 'performance', 'validation')
+
+                # Reject unintended or duplicate envelope keys
+                foreach ($p in $obsRaw.PSObject.Properties) {
+                    if ($p.Name -notin $allowedObsKeys) {
+                        $obsFailures.Add("observability contains unintended or duplicate envelope key '$($p.Name)'")
+                    }
+                }
+
+                # Helper validators for genuine non-negative types and timestamps (reject strings, booleans, fractional values)
+                $isGenuineInt = {
+                    param($val)
+                    return ($null -ne $val) -and ($val -is [int] -or $val -is [long]) -and ($val -isnot [bool]) -and ($val -ge 0)
+                }
+                $isGenuineNum = {
+                    param($val)
+                    return ($null -ne $val) -and ($val -is [int] -or $val -is [long] -or $val -is [double] -or $val -is [float] -or $val -is [decimal]) -and ($val -isnot [bool]) -and ($val -ge 0)
+                }
+                $isValidTimestamp = {
+                    param($val)
+                    if ($null -eq $val) { return $false }
+                    if ($val -is [DateTime] -or $val -is [DateTimeOffset]) { return $true }
+                    if ($val -is [string] -and -not [string]::IsNullOrWhiteSpace($val)) {
+                        $parsedDto = [DateTimeOffset]::MinValue
+                        return [DateTimeOffset]::TryParse($val, [ref]$parsedDto)
+                    }
+                    return $false
+                }
+
+                # 1. Validate context component
+                if ($obsRaw.PSObject.Properties['context']) {
+                    $contextMeta = $obsRaw.context
+                    if ($null -eq $contextMeta -or $contextMeta -isnot [System.Management.Automation.PSCustomObject]) {
+                        $obsFailures.Add("observability.context must be a JSON object")
+                    } else {
+                        if ($contextMeta.PSObject.Properties['loadedFiles']) {
+                            $lf = $contextMeta.loadedFiles
+                            if ($null -eq $lf -or $lf -is [string] -or $lf -isnot [System.Array]) {
+                                $obsFailures.Add("context.loadedFiles must be an array")
+                            }
+                        }
+                        if ($contextMeta.PSObject.Properties['sizeBytes']) {
+                            $sb = $contextMeta.sizeBytes
+                            if (-not (& $isGenuineInt $sb)) {
+                                $obsFailures.Add("context.sizeBytes must be a genuine non-negative integer")
+                            }
+                        }
+                        if ($contextMeta.PSObject.Properties['content'] -or $contextMeta.PSObject.Properties['contentBlocks'] -or $contextMeta.PSObject.Properties['fullContext']) {
+                            $obsFailures.Add("context metadata must not store full context content (memory boundary violation)")
+                        }
+                    }
+                }
+
+                # 2. Validate handoff component
+                if ($obsRaw.PSObject.Properties['handoff']) {
+                    $handoffMeta = $obsRaw.handoff
+                    if ($null -eq $handoffMeta -or $handoffMeta -isnot [System.Management.Automation.PSCustomObject]) {
+                        $obsFailures.Add("observability.handoff must be a JSON object")
+                    } else {
+                        if ($handoffMeta.PSObject.Properties['requestBytes']) {
+                            $rb = $handoffMeta.requestBytes
+                            if (-not (& $isGenuineInt $rb)) {
+                                $obsFailures.Add("handoff.requestBytes must be a genuine non-negative integer")
+                            }
+                        }
+                    }
+                }
+
+                # 3. Validate performance component
+                if ($obsRaw.PSObject.Properties['performance']) {
+                    $perfMeta = $obsRaw.performance
+                    if ($null -eq $perfMeta -or $perfMeta -isnot [System.Management.Automation.PSCustomObject]) {
+                        $obsFailures.Add("observability.performance must be a JSON object")
+                    } else {
+                        if ($perfMeta.PSObject.Properties['durationMs']) {
+                            $dur = $perfMeta.durationMs
+                            if (-not (& $isGenuineNum $dur)) {
+                                $obsFailures.Add("performance.durationMs must be a genuine non-negative number")
+                            }
+                        }
+                        if ($perfMeta.PSObject.Properties['start']) {
+                            $st = $perfMeta.start
+                            if (-not (& $isValidTimestamp $st)) {
+                                $obsFailures.Add("performance.start must be a valid ISO timestamp or DateTime when supplied")
+                            }
+                        }
+                        if ($perfMeta.PSObject.Properties['end']) {
+                            $et = $perfMeta.end
+                            if (-not (& $isValidTimestamp $et)) {
+                                $obsFailures.Add("performance.end must be a valid ISO timestamp or DateTime when supplied")
+                            }
+                        }
+                    }
+                }
+
+                # 4. Validate validation component
+                if ($obsRaw.PSObject.Properties['validation']) {
+                    $valMeta = $obsRaw.validation
+                    if ($null -eq $valMeta -or $valMeta -isnot [System.Management.Automation.PSCustomObject]) {
+                        $obsFailures.Add("observability.validation must be a JSON object")
+                    } else {
+                        if ($valMeta.PSObject.Properties['checksExecuted']) {
+                            $ce = $valMeta.checksExecuted
+                            $isValidCe = ($null -ne $ce) -and (($ce -is [System.Array]) -or (& $isGenuineInt $ce))
+                            if (-not $isValidCe) {
+                                $obsFailures.Add("validation.checksExecuted must be an array or genuine non-negative integer count (strings, booleans, and fractional values rejected)")
+                            }
+                        }
+                        $aggVal = if ($valMeta.PSObject.Properties['aggregate']) { [string]$valMeta.aggregate }
+                                  elseif ($valMeta.PSObject.Properties['result']) { [string]$valMeta.result }
+                                  else { "" }
+                        if ($aggVal) {
+                            $aggUpper = $aggVal.ToUpperInvariant()
+                            if ($aggUpper -notin @('PASS', 'FAIL', 'BLOCKED', 'UNVERIFIED')) {
+                                $obsFailures.Add("validation aggregate result '$aggVal' is invalid (allowed: PASS, FAIL, BLOCKED, UNVERIFIED)")
+                            } else {
+                                # Must match every present top-level validation state (both status and string validation, if both exist)
+                                if ($statusObj.PSObject.Properties['status'] -and -not [string]::IsNullOrWhiteSpace([string]$statusObj.status)) {
+                                    $topStatus = [string]$statusObj.status.Trim().ToUpperInvariant()
+                                    if ($topStatus -ne $aggUpper) {
+                                        $obsFailures.Add("validation.aggregate ('$aggVal') does not match top-level status ('$([string]$statusObj.status)')")
+                                    }
+                                }
+                                if ($statusObj.PSObject.Properties['validation'] -and $statusObj.validation -is [string] -and -not [string]::IsNullOrWhiteSpace([string]$statusObj.validation)) {
+                                    $topVal = [string]$statusObj.validation.Trim().ToUpperInvariant()
+                                    if ($topVal -ne $aggUpper) {
+                                        $obsFailures.Add("validation.aggregate ('$aggVal') does not match top-level validation ('$([string]$statusObj.validation)')")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if ($obsFailures.Count -gt 0) {
+                    $checkResults['json validation'] = 'FAIL'
+                    $details['json validation'].Add("Invalid observability metadata: $(@($obsFailures) -join '; ')")
+                } else {
+                    $details['json validation'].Add("Optional Phase 3.1 observability metadata verified")
+                }
+            }
         }
     }
 
@@ -448,9 +677,18 @@ function Invoke-EvidenceValidation {
     # Explicit validation result in status.json: allowed values only PASS, FAIL, BLOCKED, UNVERIFIED
     $evidenceStatus = ""
     if ($statusObj) {
-        if ($statusObj.PSObject.Properties['validation'] -and -not [string]::IsNullOrWhiteSpace([string]$statusObj.validation)) {
-            $evidenceStatus = [string]$statusObj.validation
-        } elseif ($statusObj.PSObject.Properties['status'] -and -not [string]::IsNullOrWhiteSpace([string]$statusObj.status)) {
+        if ($statusObj.PSObject.Properties['validation']) {
+            if ($statusObj.validation -is [string] -and -not [string]::IsNullOrWhiteSpace([string]$statusObj.validation)) {
+                $evidenceStatus = [string]$statusObj.validation
+            } elseif ($statusObj.validation -is [System.Management.Automation.PSCustomObject]) {
+                if ($statusObj.validation.PSObject.Properties['aggregate'] -and -not [string]::IsNullOrWhiteSpace([string]$statusObj.validation.aggregate)) {
+                    $evidenceStatus = [string]$statusObj.validation.aggregate
+                } elseif ($statusObj.validation.PSObject.Properties['result'] -and -not [string]::IsNullOrWhiteSpace([string]$statusObj.validation.result)) {
+                    $evidenceStatus = [string]$statusObj.validation.result
+                }
+            }
+        }
+        if ([string]::IsNullOrWhiteSpace($evidenceStatus) -and $statusObj.PSObject.Properties['status'] -and -not [string]::IsNullOrWhiteSpace([string]$statusObj.status)) {
             $evidenceStatus = [string]$statusObj.status
         }
     }
@@ -468,6 +706,79 @@ function Invoke-EvidenceValidation {
         $resultText = Get-Content -LiteralPath $resultMdPath -Raw
         if ($extractedEvidenceTaskId -and $resultText -notmatch [regex]::Escape($extractedEvidenceTaskId)) {
             $consistencyFailures.Add("result.md does not reference task ID '$extractedEvidenceTaskId'")
+        }
+    }
+
+    # Bridge job task body validation (status.json is authoritative envelope; request.md is compact task body)
+    $requestMdPath = Join-Path $resolvedEvidenceDir "request.md"
+    $statusExec = if ($statusObj -and $statusObj.PSObject.Properties['executor']) { [string]$statusObj.executor } else { "" }
+
+    if ($isBridgeJob -or $statusExec.Trim().ToLowerInvariant() -eq 'antigravity') {
+        if (-not (Test-Path -LiteralPath $requestMdPath -PathType Leaf)) {
+            $consistencyFailures.Add("Bridge job missing required request.md")
+        } else {
+            $requestText = Get-Content -LiteralPath $requestMdPath -Raw
+            if ([string]::IsNullOrWhiteSpace($requestText)) {
+                $consistencyFailures.Add("Bridge job request.md is empty (must contain task body: Goal, Intent, Scope, Acceptance Criteria, and Tests)")
+            } else {
+                $isOldGeneratedWrapper = ($requestText -match '(?mi)^Goal\s*:' -or $requestText -match '(?mi)^#{1,6}\s+Goal\b') -and
+                                         ($requestText -match '(?mi)^Workspace\s*:') -and
+                                         ($requestText -match '(?mi)^Routing decision\s*:') -and
+                                         ($requestText -match '(?mi)^Workflow mode\s*:') -and
+                                         ($requestText -match '(?mi)^Executor\s*:')
+
+                if (-not $isOldGeneratedWrapper) {
+                    $missingSections = [System.Collections.Generic.List[string]]::new()
+                    if ($requestText -notmatch '(?mi)(?:^#{1,6}\s+Goal\b|^\s*[-*]?\s*\*{0,2}Goal\*{0,2}\s*:)') {
+                        $missingSections.Add('Goal')
+                    }
+                    if ($requestText -notmatch '(?mi)(?:^#{1,6}\s+Intent\b|^\s*[-*]?\s*\*{0,2}Intent\*{0,2}\s*:)') {
+                        $missingSections.Add('Intent')
+                    }
+                    if ($requestText -notmatch '(?mi)(?:^#{1,6}\s+Scope\b|^\s*[-*]?\s*\*{0,2}Scope\*{0,2}\s*:)') {
+                        $missingSections.Add('Scope')
+                    }
+                    if ($requestText -notmatch '(?mi)(?:^#{1,6}\s+Acceptance\s+Criteria\b|^\s*[-*]?\s*\*{0,2}Acceptance\s+Criteria\*{0,2}\s*:)') {
+                        $missingSections.Add('Acceptance Criteria')
+                    }
+                    if ($requestText -notmatch '(?mi)(?:^#{1,6}\s+Tests?\b|^\s*[-*]?\s*\*{0,2}Tests?\*{0,2}\s*:)') {
+                        $missingSections.Add('Tests')
+                    }
+
+                    if ($missingSections.Count -gt 0) {
+                        $consistencyFailures.Add("Compact request.md missing required section(s): $(@($missingSections) -join ', ') (must contain Goal, Intent, Scope, Acceptance Criteria, and Tests)")
+                    }
+                }
+            }
+        }
+    }
+
+    # Canonical lifecycle transitions and durable provenance for bridge jobs
+    $rawLifecycle = ""
+    if ($statusObj) {
+        if ($statusObj.PSObject.Properties['state'] -and -not [string]::IsNullOrWhiteSpace([string]$statusObj.state)) {
+            $rawLifecycle = [string]$statusObj.state
+        } elseif ($statusObj.PSObject.Properties['lifecycle'] -and -not [string]::IsNullOrWhiteSpace([string]$statusObj.lifecycle)) {
+            $rawLifecycle = [string]$statusObj.lifecycle
+        }
+    }
+    $normLifecycle = $rawLifecycle.ToUpperInvariant()
+
+    if ($normLifecycle -in @('VERIFIED', 'CLOSED') -and $evidenceStatus.ToUpperInvariant() -ne 'PASS') {
+        $consistencyFailures.Add("Lifecycle state $normLifecycle is permitted only after verification succeeds (status/validation must be PASS, found '$evidenceStatus')")
+    }
+
+    if ($isBridgeJob) {
+        $hasCodexVerified = ($statusObj.PSObject.Properties['verifiedBy'] -and [string]$statusObj.verifiedBy.Trim().ToLowerInvariant() -eq 'codex') -or
+                            ($statusObj.PSObject.Properties['provenance'] -and $statusObj.provenance.PSObject.Properties['verifiedBy'] -and [string]$statusObj.provenance.verifiedBy.Trim().ToLowerInvariant() -eq 'codex')
+        $hasCodexClosed = ($statusObj.PSObject.Properties['closedBy'] -and [string]$statusObj.closedBy.Trim().ToLowerInvariant() -eq 'codex') -or
+                          ($statusObj.PSObject.Properties['provenance'] -and $statusObj.provenance.PSObject.Properties['closedBy'] -and [string]$statusObj.provenance.closedBy.Trim().ToLowerInvariant() -eq 'codex')
+
+        if ($normLifecycle -eq 'VERIFIED' -and -not $hasCodexVerified) {
+            $consistencyFailures.Add("Bridge job claiming state VERIFIED lacks durable Codex provenance (verifiedBy=codex required; Antigravity worker may produce ARTIFACT_READY only)")
+        }
+        if ($normLifecycle -eq 'CLOSED' -and (-not $hasCodexVerified -or -not $hasCodexClosed)) {
+            $consistencyFailures.Add("Bridge job claiming state CLOSED lacks durable Codex provenance (verifiedBy=codex and closedBy=codex required; self-reported or forged closure is forbidden)")
         }
     }
 
@@ -643,20 +954,37 @@ function Invoke-EvidenceValidation {
                 }
 
                 # Check failure waiver policy
+                $hasWaivedOutcome = $false
+                $hasWaiverProof = $false
+                $waiverNote = ""
+
                 if ($summaryFailed -gt 0) {
-                    $hasWaiver = $false
+                    # Raw test summary may remain FAIL, but an evidence validation PASS with outcome WAIVED is valid
+                    # ONLY when status.json contains an explicit WAIVED outcome and waiver proof; otherwise fail closed.
+                    $hasWaivedOutcome = ($statusObj -and $statusObj.PSObject.Properties['outcome'] -and [string]$statusObj.outcome.ToUpperInvariant() -eq 'WAIVED')
+
                     if ($statusObj -and $statusObj.PSObject.Properties['waiver']) {
                         $w = $statusObj.waiver
-                        if ($w.PSObject.Properties['status'] -and [string]$w.status -eq 'WAIVED') {
-                            $hasWaiver = $true
+                        $wStatus = if ($w.PSObject.Properties['status']) { [string]$w.status.ToUpperInvariant() } else { "" }
+                        $wReason = if ($w.PSObject.Properties['reason']) { [string]$w.reason } else { "" }
+                        $wEvidence = if ($w.PSObject.Properties['evidence']) { $w.evidence } else { $null }
+                        $wTest = if ($w.PSObject.Properties['test']) { [string]$w.test } else { "" }
+
+                        if ($wStatus -eq 'WAIVED' -and (-not [string]::IsNullOrWhiteSpace($wReason) -or ($null -ne $wEvidence -and @($wEvidence).Count -gt 0) -or -not [string]::IsNullOrWhiteSpace($wTest))) {
+                            $hasWaiverProof = $true
                         }
                     }
-                    if ($summaryText -match '(?mi)##\s*Failure Waiver.*?\bStatus\b\*{0,2}\s*:\s*WAIVED') {
-                        $hasWaiver = $true
-                    }
 
-                    if (-not $hasWaiver) {
-                        $testFailures.Add("$summaryFailed failed test(s) without approved WAIVED record")
+                    if ($hasWaivedOutcome -and $hasWaiverProof) {
+                        $waiverNote = "Raw test suite reported $summaryFailed failure(s); accepted under explicit outcome WAIVED with documented waiver proof in status.json"
+                    } else {
+                        if (-not $hasWaivedOutcome -and -not $hasWaiverProof) {
+                            $testFailures.Add("Raw test suite reported $summaryFailed failure(s); validation requires explicit WAIVED outcome and waiver proof in status.json, otherwise fails closed")
+                        } elseif (-not $hasWaivedOutcome) {
+                            $testFailures.Add("Raw test suite reported $summaryFailed failure(s); status.json must specify explicit outcome 'WAIVED' when failures are waived")
+                        } else {
+                            $testFailures.Add("Raw test suite reported $summaryFailed failure(s); status.json is missing documented waiver proof in waiver object")
+                        }
                     }
                 }
             }
@@ -677,7 +1005,11 @@ function Invoke-EvidenceValidation {
         $checkResults['test validation'] = 'UNVERIFIED'
         $details['test validation'].Add("Test suite verification status is marked UNVERIFIED")
     } elseif ($testsRequired -and $hasTestSummary) {
-        $details['test validation'].Add("Test summary totals internally consistent and reconciled with status.json")
+        if ($summaryFailed -gt 0 -and $hasWaivedOutcome -and $hasWaiverProof) {
+            $details['test validation'].Add($waiverNote)
+        } else {
+            $details['test validation'].Add("Test summary totals internally consistent ($summaryPassed passed, 0 failed) and reconciled with status.json")
+        }
     } else {
         $details['test validation'].Add("No test execution required for current scope")
     }
@@ -789,7 +1121,7 @@ diff --git a/src/utils.py b/src/utils.py
 # Task Handoff
 ## META
 id: TASK-100
-STATE: COMPLETED
+STATE: CLOSED
 ## ALLOWLIST
 Allowed files:
 - src/app.py
@@ -927,7 +1259,7 @@ Status: PASS
 # Task Handoff
 ## META
 id: TASK-110
-STATE: COMPLETED
+STATE: CLOSED
 ## ALLOWLIST
 Allowed files:
 - src/app.py
@@ -1005,6 +1337,755 @@ All tests executed and verified successfully. No numbers here.
 '@
         $res15 = Invoke-EvidenceValidation -TargetDir $case15Dir
         Assert-Test "Case 15: Missing task identifier fails" "FAIL" $res15
+
+        # 16. Bridge Job missing absolute workspace fails
+        $case16Dir = Join-Path $tempRoot "case16-bridge-no-workspace"
+        [void](New-Item -ItemType Directory -Path $case16Dir)
+        Copy-Item -Path (Join-Path $case1Dir "*") -Destination $case16Dir
+        Set-Content -LiteralPath (Join-Path $case16Dir "status.json") -Value @'
+{
+  "jobId": "JOB-100",
+  "routingDecision": "DELEGATED",
+  "workflowMode": "DELEGATED",
+  "executor": "antigravity",
+  "state": "ARTIFACT_READY",
+  "resultArtifact": "result.md",
+  "status": "PASS"
+}
+'@
+        $res16 = Invoke-EvidenceValidation -TargetDir $case16Dir
+        Assert-Test "Case 16: Bridge job missing absolute workspace fails" "FAIL" $res16
+
+        # 17. Bridge Job invalid executor fails
+        $case17Dir = Join-Path $tempRoot "case17-bridge-invalid-executor"
+        [void](New-Item -ItemType Directory -Path $case17Dir)
+        Copy-Item -Path (Join-Path $case1Dir "*") -Destination $case17Dir
+        Set-Content -LiteralPath (Join-Path $case17Dir "status.json") -Value @'
+{
+  "jobId": "JOB-100",
+  "workspace": "C:\\antigravity-test-workspace",
+  "routingDecision": "DELEGATED",
+  "workflowMode": "DELEGATED",
+  "executor": "other_tool",
+  "state": "ARTIFACT_READY",
+  "resultArtifact": "result.md",
+  "status": "PASS"
+}
+'@
+        $res17 = Invoke-EvidenceValidation -TargetDir $case17Dir
+        Assert-Test "Case 17: Bridge job with non-antigravity executor fails" "FAIL" $res17
+
+        # 18. Valid Bridge Job passes
+        $case18Dir = Join-Path $tempRoot "case18-bridge-valid"
+        [void](New-Item -ItemType Directory -Path $case18Dir)
+        Copy-Item -Path (Join-Path $case1Dir "*") -Destination $case18Dir
+        Set-Content -LiteralPath (Join-Path $case18Dir "result.md") -Value @'
+# Result: JOB-100
+Status: PASS
+'@
+        Set-Content -LiteralPath (Join-Path $case18Dir "request.md") -Value @'
+# Antigravity Bridge Job JOB-100
+Goal: Valid bridge job test
+Intent: Verify compact task body without duplicate envelope metadata
+Scope: src/app.py
+Acceptance Criteria: Tests pass
+Tests: unit tests
+'@
+        Set-Content -LiteralPath (Join-Path $case18Dir "status.json") -Value @'
+{
+  "jobId": "JOB-100",
+  "workspace": "C:\\antigravity-test-workspace",
+  "routingDecision": "DELEGATED",
+  "workflowMode": "DELEGATED",
+  "executor": "antigravity",
+  "state": "ARTIFACT_READY",
+  "resultArtifact": "result.md",
+  "status": "PASS",
+  "tests": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0
+  }
+}
+'@
+        $res18 = Invoke-EvidenceValidation -TargetDir $case18Dir
+        Assert-Test "Case 18: Valid bridge job passes" "PASS" $res18
+
+        # 19. Failed test without WAIVED outcome in status.json fails
+        $case19Dir = Join-Path $tempRoot "case19-failed-test-no-waiver"
+        [void](New-Item -ItemType Directory -Path $case19Dir)
+        Copy-Item -Path (Join-Path $case1Dir "*") -Destination $case19Dir
+        Set-Content -LiteralPath (Join-Path $case19Dir "test-output-summary.md") -Value @'
+# Test Summary
+- **Total Test Count**: 10
+- **Passed**: 9
+- **Failed**: 1
+- **Status**: FAIL
+'@
+        Set-Content -LiteralPath (Join-Path $case19Dir "status.json") -Value @'
+{
+  "task": "TASK-100",
+  "status": "PASS",
+  "tests": {
+    "total": 10,
+    "passed": 9,
+    "failed": 1
+  }
+}
+'@
+        $res19 = Invoke-EvidenceValidation -TargetDir $case19Dir -TargetHandoff $h1Path
+        Assert-Test "Case 19: Raw test failure without WAIVED outcome fails" "FAIL" $res19
+
+        # 20. Failed test with explicit WAIVED outcome and waiver proof passes
+        $case20Dir = Join-Path $tempRoot "case20-failed-test-waived"
+        [void](New-Item -ItemType Directory -Path $case20Dir)
+        Copy-Item -Path (Join-Path $case1Dir "*") -Destination $case20Dir
+        Set-Content -LiteralPath (Join-Path $case20Dir "test-output-summary.md") -Value @'
+# Test Summary
+- **Total Test Count**: 10
+- **Passed**: 9
+- **Failed**: 1
+- **Status**: FAIL
+'@
+        Set-Content -LiteralPath (Join-Path $case20Dir "status.json") -Value @'
+{
+  "task": "TASK-100",
+  "status": "PASS",
+  "outcome": "WAIVED",
+  "tests": {
+    "total": 10,
+    "passed": 9,
+    "failed": 1
+  },
+  "waiver": {
+    "status": "WAIVED",
+    "test": "test_flaky",
+    "reason": "Pre-existing environment failure verified in isolation"
+  }
+}
+'@
+        $res20 = Invoke-EvidenceValidation -TargetDir $case20Dir -TargetHandoff $h1Path
+        Assert-Test "Case 20: Raw test failure with explicit WAIVED outcome and waiver proof passes" "PASS" $res20
+
+        # 21. Bridge Job with DIRECT routing decision fails
+        $case21Dir = Join-Path $tempRoot "case21-bridge-direct-routing"
+        [void](New-Item -ItemType Directory -Path $case21Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case21Dir
+        Set-Content -LiteralPath (Join-Path $case21Dir "status.json") -Value @'
+{
+  "jobId": "JOB-100",
+  "workspace": "C:\\antigravity-test-workspace",
+  "routingDecision": "DIRECT",
+  "workflowMode": "DELEGATED",
+  "executor": "antigravity",
+  "state": "ARTIFACT_READY",
+  "resultArtifact": "result.md",
+  "status": "PASS"
+}
+'@
+        $res21 = Invoke-EvidenceValidation -TargetDir $case21Dir
+        Assert-Test "Case 21: Bridge job with DIRECT routing decision fails" "FAIL" $res21
+
+        # 22. CLOSED state without passing verification fails
+        $case22Dir = Join-Path $tempRoot "case22-closed-unverified"
+        [void](New-Item -ItemType Directory -Path $case22Dir)
+        Copy-Item -Path (Join-Path $case1Dir "*") -Destination $case22Dir
+        Set-Content -LiteralPath (Join-Path $case22Dir "status.json") -Value @'
+{
+  "task": "TASK-100",
+  "state": "CLOSED",
+  "status": "UNVERIFIED"
+}
+'@
+        $res22 = Invoke-EvidenceValidation -TargetDir $case22Dir -TargetHandoff $h1Path
+        Assert-Test "Case 22: CLOSED state without passing verification fails" "FAIL" $res22
+
+        # 23. Bridge Job missing workflowMode fails
+        $case23Dir = Join-Path $tempRoot "case23-bridge-no-workflow-mode"
+        [void](New-Item -ItemType Directory -Path $case23Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case23Dir
+        Set-Content -LiteralPath (Join-Path $case23Dir "status.json") -Value @'
+{
+  "jobId": "JOB-100",
+  "workspace": "C:\\antigravity-test-workspace",
+  "routingDecision": "DELEGATED",
+  "executor": "antigravity",
+  "state": "ARTIFACT_READY",
+  "resultArtifact": "result.md",
+  "status": "PASS"
+}
+'@
+        $res23 = Invoke-EvidenceValidation -TargetDir $case23Dir
+        Assert-Test "Case 23: Bridge job missing workflowMode fails" "FAIL" $res23
+
+        # 24. Bridge Job with empty request.md fails
+        $case24Dir = Join-Path $tempRoot "case24-bridge-empty-request-md"
+        [void](New-Item -ItemType Directory -Path $case24Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case24Dir
+        Set-Content -LiteralPath (Join-Path $case24Dir "request.md") -Value "   `r`n  "
+        $res24 = Invoke-EvidenceValidation -TargetDir $case24Dir
+        Assert-Test "Case 24: Bridge job with empty request.md fails" "FAIL" $res24
+
+        # 25. Forged CLOSED with PASS but no Codex provenance fails
+        $case25Dir = Join-Path $tempRoot "case25-forged-closed-no-provenance"
+        [void](New-Item -ItemType Directory -Path $case25Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case25Dir
+        Set-Content -LiteralPath (Join-Path $case25Dir "status.json") -Value @'
+{
+  "jobId": "JOB-100",
+  "workspace": "C:\\antigravity-test-workspace",
+  "routingDecision": "DELEGATED",
+  "workflowMode": "DELEGATED",
+  "executor": "antigravity",
+  "state": "CLOSED",
+  "resultArtifact": "result.md",
+  "status": "PASS",
+  "tests": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0
+  }
+}
+'@
+        $res25 = Invoke-EvidenceValidation -TargetDir $case25Dir
+        Assert-Test "Case 25: Forged CLOSED with PASS and no Codex provenance fails" "FAIL" $res25
+
+        # 26. Valid CLOSED bridge job with durable Codex provenance passes
+        $case26Dir = Join-Path $tempRoot "case26-valid-closed-provenance"
+        [void](New-Item -ItemType Directory -Path $case26Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case26Dir
+        Set-Content -LiteralPath (Join-Path $case26Dir "status.json") -Value @'
+{
+  "jobId": "JOB-100",
+  "workspace": "C:\\antigravity-test-workspace",
+  "routingDecision": "DELEGATED",
+  "workflowMode": "DELEGATED",
+  "executor": "antigravity",
+  "state": "CLOSED",
+  "verifiedBy": "codex",
+  "closedBy": "codex",
+  "resultArtifact": "result.md",
+  "status": "PASS",
+  "tests": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0
+  }
+}
+'@
+        $res26 = Invoke-EvidenceValidation -TargetDir $case26Dir
+        Assert-Test "Case 26: Valid CLOSED bridge job with durable Codex provenance passes" "PASS" $res26
+
+        # 27. Bridge job missing request.md fails
+        $case27Dir = Join-Path $tempRoot "case27-bridge-missing-request-md"
+        [void](New-Item -ItemType Directory -Path $case27Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case27Dir
+        Remove-Item -LiteralPath (Join-Path $case27Dir "request.md") -Force
+        $res27 = Invoke-EvidenceValidation -TargetDir $case27Dir
+        Assert-Test "Case 27: Bridge job missing request.md fails" "FAIL" $res27
+
+        # 28. Bridge job with target but without workspace fails
+        $case28Dir = Join-Path $tempRoot "case28-bridge-target-without-workspace"
+        [void](New-Item -ItemType Directory -Path $case28Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case28Dir
+        Set-Content -LiteralPath (Join-Path $case28Dir "status.json") -Value @'
+{
+  "jobId": "JOB-100",
+  "target": "C:\\antigravity-test-workspace",
+  "routingDecision": "DELEGATED",
+  "workflowMode": "DELEGATED",
+  "executor": "antigravity",
+  "state": "ARTIFACT_READY",
+  "resultArtifact": "result.md",
+  "status": "PASS"
+}
+'@
+        $res28 = Invoke-EvidenceValidation -TargetDir $case28Dir
+        Assert-Test "Case 28: Bridge job with target but without workspace fails" "FAIL" $res28
+
+        # 29. Compact request missing a required section fails
+        $case29Dir = Join-Path $tempRoot "case29-compact-missing-section"
+        [void](New-Item -ItemType Directory -Path $case29Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case29Dir
+        Set-Content -LiteralPath (Join-Path $case29Dir "request.md") -Value @'
+# Antigravity Bridge Job JOB-100
+Goal: Valid bridge job test
+Intent: Verify compact task body
+Scope: src/app.py
+Tests: unit tests
+'@
+        $res29 = Invoke-EvidenceValidation -TargetDir $case29Dir
+        Assert-Test "Case 29: Compact request missing Acceptance Criteria fails" "FAIL" $res29
+
+        # 30. Compact request with artifactDirectory passes
+        $case30Dir = Join-Path $tempRoot "case30-compact-artifact-directory"
+        [void](New-Item -ItemType Directory -Path $case30Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case30Dir
+        Set-Content -LiteralPath (Join-Path $case30Dir "status.json") -Value @'
+{
+  "jobId": "JOB-100",
+  "workspace": "C:\\antigravity-test-workspace",
+  "routingDecision": "DELEGATED",
+  "workflowMode": "DELEGATED",
+  "executor": "antigravity",
+  "state": "ARTIFACT_READY",
+  "artifactDirectory": "C:\\antigravity-test-workspace\\evidence",
+  "status": "PASS",
+  "tests": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0
+  }
+}
+'@
+        $res30 = Invoke-EvidenceValidation -TargetDir $case30Dir
+        Assert-Test "Case 30: Compact request with artifactDirectory passes" "PASS" $res30
+
+        # 31. Old generated wrapper backward compatibility passes
+        $case31Dir = Join-Path $tempRoot "case31-old-wrapper-compat"
+        [void](New-Item -ItemType Directory -Path $case31Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case31Dir
+        Set-Content -LiteralPath (Join-Path $case31Dir "request.md") -Value @'
+# Antigravity Bridge Job JOB-100
+Goal: Legacy wrapper test
+Workspace: C:\antigravity-test-workspace
+Mode: patch
+Routing decision: DELEGATED
+Workflow mode: DELEGATED
+Executor: antigravity
+Result artifact: result.md
+JobId: JOB-100
+'@
+        $res31 = Invoke-EvidenceValidation -TargetDir $case31Dir
+        Assert-Test "Case 31: Old generated wrapper backward compatibility passes" "PASS" $res31
+
+        # 32. Bridge job with valid Phase 3.1 observability metadata passes
+        $case32Dir = Join-Path $tempRoot "case32-observability-valid"
+        [void](New-Item -ItemType Directory -Path $case32Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case32Dir
+        Set-Content -LiteralPath (Join-Path $case32Dir "status.json") -Value @'
+{
+  "jobId": "JOB-100",
+  "workspace": "C:\\antigravity-test-workspace",
+  "routingDecision": "DELEGATED",
+  "workflowMode": "DELEGATED",
+  "executor": "antigravity",
+  "state": "ARTIFACT_READY",
+  "resultArtifact": "result.md",
+  "status": "PASS",
+  "tests": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0
+  },
+  "observability": {
+    "context": {
+      "loadedFiles": [
+        "summary.md",
+        "context.md"
+      ],
+      "sizeBytes": 1420
+    },
+    "handoff": {
+      "requestBytes": 512
+    },
+    "performance": {
+      "start": "2026-09-15T17:00:00.000Z",
+      "end": "2026-09-15T17:05:00.000Z",
+      "durationMs": 300000
+    },
+    "validation": {
+      "checksExecuted": 5,
+      "aggregate": "PASS"
+    }
+  }
+}
+'@
+        $res32 = Invoke-EvidenceValidation -TargetDir $case32Dir
+        Assert-Test "Case 32: Bridge job with valid Phase 3.1 observability passes" "PASS" $res32
+
+        # 33. Bridge job with invalid observability metadata (negative sizeBytes) fails
+        $case33Dir = Join-Path $tempRoot "case33-observability-invalid"
+        [void](New-Item -ItemType Directory -Path $case33Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case33Dir
+        Set-Content -LiteralPath (Join-Path $case33Dir "status.json") -Value @'
+{
+  "jobId": "JOB-100",
+  "workspace": "C:\\antigravity-test-workspace",
+  "routingDecision": "DELEGATED",
+  "workflowMode": "DELEGATED",
+  "executor": "antigravity",
+  "state": "ARTIFACT_READY",
+  "resultArtifact": "result.md",
+  "status": "PASS",
+  "tests": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0
+  },
+  "observability": {
+    "context": {
+      "loadedFiles": [
+        "summary.md"
+      ],
+      "sizeBytes": -10
+    }
+  }
+}
+'@
+        $res33 = Invoke-EvidenceValidation -TargetDir $case33Dir
+        Assert-Test "Case 33: Bridge job with negative context.sizeBytes fails" "FAIL" $res33
+
+        # 34. Bridge job with duplicated envelope property in observability fails
+        $case34Dir = Join-Path $tempRoot "case34-observability-duplicate"
+        [void](New-Item -ItemType Directory -Path $case34Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case34Dir
+        Set-Content -LiteralPath (Join-Path $case34Dir "status.json") -Value @'
+{
+  "jobId": "JOB-100",
+  "workspace": "C:\\antigravity-test-workspace",
+  "routingDecision": "DELEGATED",
+  "workflowMode": "DELEGATED",
+  "executor": "antigravity",
+  "state": "ARTIFACT_READY",
+  "resultArtifact": "result.md",
+  "status": "PASS",
+  "tests": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0
+  },
+  "observability": {
+    "jobId": "JOB-100",
+    "context": {
+      "loadedFiles": [
+        "summary.md"
+      ],
+      "sizeBytes": 100
+    }
+  }
+}
+'@
+        $res34 = Invoke-EvidenceValidation -TargetDir $case34Dir
+        Assert-Test "Case 34: Bridge job with duplicated envelope property in observability fails" "FAIL" $res34
+
+        # 35. Bridge job with string validation.checksExecuted fails (strings rejected)
+        $case35Dir = Join-Path $tempRoot "case35-string-checks-executed"
+        [void](New-Item -ItemType Directory -Path $case35Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case35Dir
+        Set-Content -LiteralPath (Join-Path $case35Dir "status.json") -Value @'
+{
+  "jobId": "JOB-100",
+  "workspace": "C:\\antigravity-test-workspace",
+  "routingDecision": "DELEGATED",
+  "workflowMode": "DELEGATED",
+  "executor": "antigravity",
+  "state": "ARTIFACT_READY",
+  "resultArtifact": "result.md",
+  "status": "PASS",
+  "tests": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0
+  },
+  "observability": {
+    "validation": {
+      "checksExecuted": "5",
+      "aggregate": "PASS"
+    }
+  }
+}
+'@
+        $res35 = Invoke-EvidenceValidation -TargetDir $case35Dir
+        Assert-Test "Case 35: Bridge job with string validation.checksExecuted fails" "FAIL" $res35
+
+        # 36. Bridge job with non-array context.loadedFiles fails
+        $case36Dir = Join-Path $tempRoot "case36-nonarray-loaded-files"
+        [void](New-Item -ItemType Directory -Path $case36Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case36Dir
+        Set-Content -LiteralPath (Join-Path $case36Dir "status.json") -Value @'
+{
+  "jobId": "JOB-100",
+  "workspace": "C:\\antigravity-test-workspace",
+  "routingDecision": "DELEGATED",
+  "workflowMode": "DELEGATED",
+  "executor": "antigravity",
+  "state": "ARTIFACT_READY",
+  "resultArtifact": "result.md",
+  "status": "PASS",
+  "tests": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0
+  },
+  "observability": {
+    "context": {
+      "loadedFiles": "summary.md",
+      "sizeBytes": 100
+    }
+  }
+}
+'@
+        $res36 = Invoke-EvidenceValidation -TargetDir $case36Dir
+        Assert-Test "Case 36: Bridge job with non-array context.loadedFiles fails" "FAIL" $res36
+
+        # 37. Bridge job with inconsistent validation.aggregate fails
+        $case37Dir = Join-Path $tempRoot "case37-inconsistent-aggregate"
+        [void](New-Item -ItemType Directory -Path $case37Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case37Dir
+        Set-Content -LiteralPath (Join-Path $case37Dir "status.json") -Value @'
+{
+  "jobId": "JOB-100",
+  "workspace": "C:\\antigravity-test-workspace",
+  "routingDecision": "DELEGATED",
+  "workflowMode": "DELEGATED",
+  "executor": "antigravity",
+  "state": "ARTIFACT_READY",
+  "resultArtifact": "result.md",
+  "status": "PASS",
+  "tests": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0
+  },
+  "observability": {
+    "validation": {
+      "checksExecuted": 5,
+      "aggregate": "FAIL"
+    }
+  }
+}
+'@
+        $res37 = Invoke-EvidenceValidation -TargetDir $case37Dir
+        Assert-Test "Case 37: Bridge job with inconsistent validation.aggregate fails" "FAIL" $res37
+
+        # 38. Non-object observability container fails
+        $case38Dir = Join-Path $tempRoot "case38-nonobject-observability"
+        [void](New-Item -ItemType Directory -Path $case38Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case38Dir
+        Set-Content -LiteralPath (Join-Path $case38Dir "status.json") -Value @'
+{
+  "jobId": "JOB-100",
+  "workspace": "C:\\antigravity-test-workspace",
+  "routingDecision": "DELEGATED",
+  "workflowMode": "DELEGATED",
+  "executor": "antigravity",
+  "state": "ARTIFACT_READY",
+  "resultArtifact": "result.md",
+  "status": "PASS",
+  "tests": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0
+  },
+  "observability": "active"
+}
+'@
+        $res38 = Invoke-EvidenceValidation -TargetDir $case38Dir
+        Assert-Test "Case 38: Non-object observability container fails" "FAIL" $res38
+
+        # 39. Non-object observability component fails
+        $case39Dir = Join-Path $tempRoot "case39-nonobject-component"
+        [void](New-Item -ItemType Directory -Path $case39Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case39Dir
+        Set-Content -LiteralPath (Join-Path $case39Dir "status.json") -Value @'
+{
+  "jobId": "JOB-100",
+  "workspace": "C:\\antigravity-test-workspace",
+  "routingDecision": "DELEGATED",
+  "workflowMode": "DELEGATED",
+  "executor": "antigravity",
+  "state": "ARTIFACT_READY",
+  "resultArtifact": "result.md",
+  "status": "PASS",
+  "tests": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0
+  },
+  "observability": {
+    "context": "loaded"
+  }
+}
+'@
+        $res39 = Invoke-EvidenceValidation -TargetDir $case39Dir
+        Assert-Test "Case 39: Non-object observability component fails" "FAIL" $res39
+
+        # 40. String number for integer fails (numeric coercion rejection)
+        $case40Dir = Join-Path $tempRoot "case40-string-integer"
+        [void](New-Item -ItemType Directory -Path $case40Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case40Dir
+        Set-Content -LiteralPath (Join-Path $case40Dir "status.json") -Value @'
+{
+  "jobId": "JOB-100",
+  "workspace": "C:\\antigravity-test-workspace",
+  "routingDecision": "DELEGATED",
+  "workflowMode": "DELEGATED",
+  "executor": "antigravity",
+  "state": "ARTIFACT_READY",
+  "resultArtifact": "result.md",
+  "status": "PASS",
+  "tests": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0
+  },
+  "observability": {
+    "context": {
+      "sizeBytes": "100"
+    }
+  }
+}
+'@
+        $res40 = Invoke-EvidenceValidation -TargetDir $case40Dir
+        Assert-Test "Case 40: String number for integer fails" "FAIL" $res40
+
+        # 41. Floating point number for integer fails
+        $case41Dir = Join-Path $tempRoot "case41-float-integer"
+        [void](New-Item -ItemType Directory -Path $case41Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case41Dir
+        Set-Content -LiteralPath (Join-Path $case41Dir "status.json") -Value @'
+{
+  "jobId": "JOB-100",
+  "workspace": "C:\\antigravity-test-workspace",
+  "routingDecision": "DELEGATED",
+  "workflowMode": "DELEGATED",
+  "executor": "antigravity",
+  "state": "ARTIFACT_READY",
+  "resultArtifact": "result.md",
+  "status": "PASS",
+  "tests": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0
+  },
+  "observability": {
+    "context": {
+      "sizeBytes": 10.5
+    }
+  }
+}
+'@
+        $res41 = Invoke-EvidenceValidation -TargetDir $case41Dir
+        Assert-Test "Case 41: Floating point number for integer fails" "FAIL" $res41
+
+        # 42. Boolean value for integer fails
+        $case42Dir = Join-Path $tempRoot "case42-bool-integer"
+        [void](New-Item -ItemType Directory -Path $case42Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case42Dir
+        Set-Content -LiteralPath (Join-Path $case42Dir "status.json") -Value @'
+{
+  "jobId": "JOB-100",
+  "workspace": "C:\\antigravity-test-workspace",
+  "routingDecision": "DELEGATED",
+  "workflowMode": "DELEGATED",
+  "executor": "antigravity",
+  "state": "ARTIFACT_READY",
+  "resultArtifact": "result.md",
+  "status": "PASS",
+  "tests": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0
+  },
+  "observability": {
+    "context": {
+      "sizeBytes": true
+    }
+  }
+}
+'@
+        $res42 = Invoke-EvidenceValidation -TargetDir $case42Dir
+        Assert-Test "Case 42: Boolean value for integer fails" "FAIL" $res42
+
+        # 43. Fractional checksExecuted fails
+        $case43Dir = Join-Path $tempRoot "case43-fractional-checks"
+        [void](New-Item -ItemType Directory -Path $case43Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case43Dir
+        Set-Content -LiteralPath (Join-Path $case43Dir "status.json") -Value @'
+{
+  "jobId": "JOB-100",
+  "workspace": "C:\\antigravity-test-workspace",
+  "routingDecision": "DELEGATED",
+  "workflowMode": "DELEGATED",
+  "executor": "antigravity",
+  "state": "ARTIFACT_READY",
+  "resultArtifact": "result.md",
+  "status": "PASS",
+  "tests": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0
+  },
+  "observability": {
+    "validation": {
+      "checksExecuted": 4.2,
+      "aggregate": "PASS"
+    }
+  }
+}
+'@
+        $res43 = Invoke-EvidenceValidation -TargetDir $case43Dir
+        Assert-Test "Case 43: Fractional checksExecuted fails" "FAIL" $res43
+
+        # 44. Conflicting top-level validation states fail
+        $case44Dir = Join-Path $tempRoot "case44-conflicting-toplevel"
+        [void](New-Item -ItemType Directory -Path $case44Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case44Dir
+        Set-Content -LiteralPath (Join-Path $case44Dir "status.json") -Value @'
+{
+  "jobId": "JOB-100",
+  "workspace": "C:\\antigravity-test-workspace",
+  "routingDecision": "DELEGATED",
+  "workflowMode": "DELEGATED",
+  "executor": "antigravity",
+  "state": "ARTIFACT_READY",
+  "resultArtifact": "result.md",
+  "status": "PASS",
+  "validation": "FAIL",
+  "tests": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0
+  },
+  "observability": {
+    "validation": {
+      "checksExecuted": 5,
+      "aggregate": "PASS"
+    }
+  }
+}
+'@
+        $res44 = Invoke-EvidenceValidation -TargetDir $case44Dir
+        Assert-Test "Case 44: Conflicting top-level validation states fail" "FAIL" $res44
+
+        # 45. Unintended envelope key in observability fails
+        $case45Dir = Join-Path $tempRoot "case45-unintended-envelope-key"
+        [void](New-Item -ItemType Directory -Path $case45Dir)
+        Copy-Item -Path (Join-Path $case18Dir "*") -Destination $case45Dir
+        Set-Content -LiteralPath (Join-Path $case45Dir "status.json") -Value @'
+{
+  "jobId": "JOB-100",
+  "workspace": "C:\\antigravity-test-workspace",
+  "routingDecision": "DELEGATED",
+  "workflowMode": "DELEGATED",
+  "executor": "antigravity",
+  "state": "ARTIFACT_READY",
+  "resultArtifact": "result.md",
+  "status": "PASS",
+  "tests": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0
+  },
+  "observability": {
+    "customEnvelopeKey": "disallowed"
+  }
+}
+'@
+        $res45 = Invoke-EvidenceValidation -TargetDir $case45Dir
+        Assert-Test "Case 45: Unintended envelope key in observability fails" "FAIL" $res45
+
 
     } finally {
         if (Test-Path -LiteralPath $tempRoot) {

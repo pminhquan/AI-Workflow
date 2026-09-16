@@ -1,11 +1,11 @@
 {
   "task": "TASK-20260911-001",
   "executor": "antigravity",
-  "lifecycle": "COMPLETED",
+  "lifecycle": "CLOSED",
   "validation": "PASS",
   "outcome": "WAIVED",
   "status": "PASS",
-  "handoffState": "COMPLETED",
+  "handoffState": "CLOSED",
   "tests": {
     "total": 85,
     "passed": 84,

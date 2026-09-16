@@ -73,7 +73,7 @@ Evidence:
 Decision:
 
 Accepted with waiver. Canonical task model:
-- **Lifecycle**: COMPLETED
+- **Lifecycle**: CLOSED
 - **Validation**: PASS
 - **Outcome**: WAIVED
 

@@ -1,14 +1,15 @@
 <#
 .SYNOPSIS
-    Starts Antigravity with remote debugging enabled on port 9222.
+    Starts Antigravity with remote debugging enabled.
 .DESCRIPTION
-    Checks if Antigravity is already running and listening on port 9222.
-    If not listening, launches Antigravity with --remote-debugging-port=9222
-    and waits until TCP port 9222 is available. Does not modify the Antigravity installation.
+    Checks if Antigravity is already running and listening on a remote debugging port
+    (supporting explicit port, configured ANTIGRAVITY_PORT or DEVTOOLS_PORT, or runtime discovery via DevToolsActivePort).
+    If not listening, launches Antigravity with --remote-debugging-port=<port>
+    and waits until the port is available. Does not modify the Antigravity installation.
 .PARAMETER ExePath
     Path to the Antigravity executable. Defaults to standard local app data installation path.
 .PARAMETER Port
-    Target TCP remote debugging port. Defaults to 9222.
+    Target TCP remote debugging port. When omitted or 0, attempts port resolution from ANTIGRAVITY_PORT, DEVTOOLS_PORT, or DevToolsActivePort runtime discovery before failing closed.
 .PARAMETER TimeoutSec
     Maximum seconds to wait for port to become available. Defaults to 30.
 #>
@@ -17,7 +18,7 @@ param(
     [Parameter(Position = 0)]
     [string]$ExePath = "$env:LOCALAPPDATA\Programs\antigravity\Antigravity.exe",
 
-    [int]$Port = 9222,
+    [int]$Port = 0,
 
     [int]$TimeoutSec = 30
 )
@@ -28,7 +29,8 @@ $ErrorActionPreference = 'Stop'
 function Test-PortListening {
     param(
         [string]$Address = '127.0.0.1',
-        [int]$TargetPort = 9222,
+        [Parameter(Mandatory = $true)]
+        [int]$TargetPort,
         [int]$TimeoutMs = 500
     )
 
@@ -48,8 +50,46 @@ function Test-PortListening {
     }
 }
 
+# Resolve target port using configured runtime discovery if not explicitly specified
+$portExplicit = ($PSBoundParameters.ContainsKey('Port') -and $Port -gt 0)
+$discoveryMethod = ""
+
+if (-not $portExplicit) {
+    if ($env:ANTIGRAVITY_PORT -and ($env:ANTIGRAVITY_PORT -as [int]) -gt 0) {
+        $Port = [int]$env:ANTIGRAVITY_PORT
+        $discoveryMethod = "environment variable ANTIGRAVITY_PORT"
+    } elseif ($env:DEVTOOLS_PORT -and ($env:DEVTOOLS_PORT -as [int]) -gt 0) {
+        $Port = [int]$env:DEVTOOLS_PORT
+        $discoveryMethod = "environment variable DEVTOOLS_PORT"
+    } else {
+        $candidates = @(
+            (Join-Path $env:APPDATA "Antigravity\DevToolsActivePort"),
+            (Join-Path $env:LOCALAPPDATA "Antigravity\DevToolsActivePort"),
+            (Join-Path $env:APPDATA "Antigravity IDE\DevToolsActivePort")
+        )
+        foreach ($c in $candidates) {
+            if (Test-Path -LiteralPath $c -PathType Leaf) {
+                try {
+                    $firstLine = (Get-Content -LiteralPath $c -TotalCount 1 -ErrorAction SilentlyContinue).Trim()
+                    if ($firstLine -as [int] -and [int]$firstLine -gt 0) {
+                        $Port = [int]$firstLine
+                        $discoveryMethod = "runtime discovery ($c)"
+                        break
+                    }
+                } catch {}
+            }
+        }
+    }
+    if ($Port -le 0) {
+        Write-Error "STATUS: FAIL - Failed to resolve remote debugging port: No explicit -Port specified, neither ANTIGRAVITY_PORT nor DEVTOOLS_PORT environment variable is set, and DevToolsActivePort could not be found or read. Implicit default port 9222 is disabled to prevent fail-open assumptions."
+        exit 1
+    }
+} else {
+    $discoveryMethod = "explicit argument (-Port $Port)"
+}
+
 Write-Host "=== Antigravity Startup Check ==="
-Write-Host "Target Port   : $Port"
+Write-Host "Target Port   : $Port ($discoveryMethod)"
 Write-Host "Wait Timeout  : $TimeoutSec seconds"
 
 # 1. Check if port is already listening

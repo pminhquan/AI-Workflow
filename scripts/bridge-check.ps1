@@ -2,31 +2,88 @@
 .SYNOPSIS
     Checks Antigravity bridge and session readiness.
 .DESCRIPTION
-    Validates that the Antigravity process is running, TCP port 9222 is listening,
+    Validates that the Antigravity process is running, TCP remote debugging port is listening
+    (using explicit argument, configured environment variable, or DevToolsActivePort runtime discovery),
     the DevTools HTTP endpoint is reachable, at least one active page target exists,
     and no stale-session symptoms are detected. Reports PASS, WARN, FAIL, and final readiness status.
 .PARAMETER Port
-    Target TCP remote debugging port. Defaults to 9222.
+    Target TCP remote debugging port. When omitted or 0, attempts port resolution from ANTIGRAVITY_PORT, DEVTOOLS_PORT, or DevToolsActivePort runtime discovery before failing closed.
 .PARAMETER HostAddress
     Target loopback address. Defaults to 127.0.0.1.
 .PARAMETER TimeoutSec
     HTTP request timeout in seconds. Defaults to 5.
+.PARAMETER GoldenPath
+    Executes the minimal end-to-end golden path verification suite.
 #>
 [CmdletBinding()]
 param(
-    [int]$Port = 9222,
+    [int]$Port = 0,
 
     [string]$HostAddress = '127.0.0.1',
 
-    [int]$TimeoutSec = 5
+    [int]$TimeoutSec = 5,
+
+    [switch]$GoldenPath
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# Support minimal golden path end-to-end check
+if ($GoldenPath) {
+    $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+    $goldenScript = Join-Path $scriptDir "bridge-golden-path-check.ps1"
+    if (Test-Path -LiteralPath $goldenScript -PathType Leaf) {
+        & $goldenScript
+        exit $LASTEXITCODE
+    } else {
+        Write-Error "Golden path check script not found at: $goldenScript"
+        exit 1
+    }
+}
+
 $passes = [System.Collections.Generic.List[string]]::new()
 $warns = [System.Collections.Generic.List[string]]::new()
 $fails = [System.Collections.Generic.List[string]]::new()
+
+# Configured runtime discovery for remote debugging port
+$resolvedPort = $Port
+$portDiscoveryMethod = ""
+
+if ($PSBoundParameters.ContainsKey('Port') -and $Port -gt 0) {
+    $portDiscoveryMethod = "explicit argument (-Port $Port)"
+} elseif ($env:ANTIGRAVITY_PORT -and ($env:ANTIGRAVITY_PORT -as [int]) -gt 0) {
+    $resolvedPort = [int]$env:ANTIGRAVITY_PORT
+    $portDiscoveryMethod = "environment variable ANTIGRAVITY_PORT"
+} elseif ($env:DEVTOOLS_PORT -and ($env:DEVTOOLS_PORT -as [int]) -gt 0) {
+    $resolvedPort = [int]$env:DEVTOOLS_PORT
+    $portDiscoveryMethod = "environment variable DEVTOOLS_PORT"
+} else {
+    $candidatePaths = @(
+        (Join-Path $env:APPDATA "Antigravity\DevToolsActivePort"),
+        (Join-Path $env:LOCALAPPDATA "Antigravity\DevToolsActivePort"),
+        (Join-Path $env:APPDATA "Antigravity IDE\DevToolsActivePort")
+    )
+    foreach ($cand in $candidatePaths) {
+        if (Test-Path -LiteralPath $cand -PathType Leaf) {
+            try {
+                $firstLine = (Get-Content -LiteralPath $cand -TotalCount 1 -ErrorAction SilentlyContinue).Trim()
+                if ($firstLine -as [int] -and [int]$firstLine -gt 0) {
+                    $resolvedPort = [int]$firstLine
+                    $portDiscoveryMethod = "runtime discovery ($cand)"
+                    break
+                }
+            } catch {}
+        }
+    }
+}
+
+if ($resolvedPort -gt 0) {
+    $Port = $resolvedPort
+    $passes.Add("Remote debugging port resolved: $Port via $portDiscoveryMethod")
+} else {
+    $fails.Add("Failed to resolve Antigravity remote debugging port: No explicit -Port specified, neither ANTIGRAVITY_PORT nor DEVTOOLS_PORT environment variable is set, and DevToolsActivePort could not be found or read. Implicit default port 9222 is disabled to prevent fail-open assumptions.")
+}
 
 # 1. Check Antigravity process
 $procList = @(Get-Process -Name "*antigravity*" -ErrorAction SilentlyContinue)
@@ -39,24 +96,28 @@ if ($procList.Count -gt 0) {
 
 # 2. Check TCP port listening
 $portListening = $false
-$tcpClient = New-Object System.Net.Sockets.TcpClient
-try {
-    $asyncResult = $tcpClient.BeginConnect($HostAddress, $Port, $null, $null)
-    $waitSuccess = $asyncResult.AsyncWaitHandle.WaitOne(1000, $false)
-    if ($waitSuccess -and $tcpClient.Connected) {
-        $tcpClient.EndConnect($asyncResult)
-        $portListening = $true
+if ($resolvedPort -gt 0) {
+    $tcpClient = New-Object System.Net.Sockets.TcpClient
+    try {
+        $asyncResult = $tcpClient.BeginConnect($HostAddress, $Port, $null, $null)
+        $waitSuccess = $asyncResult.AsyncWaitHandle.WaitOne(1000, $false)
+        if ($waitSuccess -and $tcpClient.Connected) {
+            $tcpClient.EndConnect($asyncResult)
+            $portListening = $true
+        }
+    } catch {
+        $portListening = $false
+    } finally {
+        $tcpClient.Close()
     }
-} catch {
-    $portListening = $false
-} finally {
-    $tcpClient.Close()
-}
 
-if ($portListening) {
-    $passes.Add("TCP port $Port is LISTENING on $HostAddress")
+    if ($portListening) {
+        $passes.Add("TCP port $Port is LISTENING on $HostAddress")
+    } else {
+        $fails.Add("TCP port $Port is NOT listening on $HostAddress")
+    }
 } else {
-    $fails.Add("TCP port $Port is NOT listening on $HostAddress")
+    $fails.Add("TCP port check skipped: remote debugging port could not be resolved")
 }
 
 # 3. Check DevTools endpoint reachable & version info

@@ -84,7 +84,10 @@ For deterministic Phase 2.1 project memory context loading, run:
 ./scripts/context-loader.ps1 -Project "<PROJECT>" -Task "<TASK_DESCRIPTION>"
 ```
 
-to select and load project memory files (`projects/<project>/*.md`) based on task classification or manual `@load` overrides.
+Context delivery operates under an explicit three-tier boundary (project memory resolves from the single authoritative root `D:\AI\codex-anti\projects` or explicit `$env:PROJECT_MEMORY_ROOT`):
+- **Always Active**: Global workflow rules (`core/`) and canonical task contract loaded by the workflow framework; compact project identity (`summary.md`) loaded by `context-loader.ps1`.
+- **Conditionally Loaded**: Architecture (`architecture.md`), decisions (`decisions.md`), issues (`issues.md`), roadmap (`roadmap.md`), health (`health.md`), changelog (`changelog.md`), and domain knowledge (`skills/` or `knowledge/`) selected via task classification or `@load` override.
+- **Execution Artifacts**: Evidence artifacts (`status.json`, `result.md`, `diff.patch`, `test-output-summary.md`) loaded only on-demand during verification.
 
 ---
 
@@ -189,7 +192,7 @@ The bridge is required **only** for Antigravity work. Before delegating tasks to
    ```powershell
    .\scripts\start-antigravity.ps1
    ```
-   This ensures `Antigravity.exe` is running with `--remote-debugging-port=9222` and waits until TCP port 9222 is listening without altering the installation.
+   This ensures `Antigravity.exe` is running and listening on its resolved remote debugging port (via `-Port`, `$env:ANTIGRAVITY_PORT`, `$env:DEVTOOLS_PORT`, or `DevToolsActivePort` discovery) without altering the installation. Port resolution fails closed if no port can be discovered.
 
 2. **Verify bridge readiness**:
    ```powershell
@@ -203,7 +206,7 @@ The bridge is required **only** for Antigravity work. Before delegating tasks to
 
 4. **Bridge Recovery**:
    If the bridge check fails or returns warnings, follow the recovery procedures and fresh-Codex-session recovery steps defined in `core/BRIDGE_POLICY.md`:
-   - If `FAILED`: run `.\scripts\start-antigravity.ps1` to ensure port 9222 is open, then re-check with `.\scripts\bridge-check.ps1`.
+   - If `FAILED`: run `.\scripts\start-antigravity.ps1` (or specify `-Port <int>`) to ensure the remote debugging port is open, then re-check with `.\scripts\bridge-check.ps1`.
    - If `STALE`: reset or restart the session and verify readiness before submitting jobs.
 
 ---

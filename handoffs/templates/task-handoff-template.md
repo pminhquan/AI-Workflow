@@ -43,6 +43,7 @@ Markdown-only handoff record shared by User, ChatWeb, Native Codex, and Antigrav
 - **Result**: `UNVERIFIED`
 
 ## EVIDENCE
+- **Artifact Directory**: `<explicit evidence directory or artifact location>`
 - **Changed files**: `<verified paths or NONE>`
 - **Result**: `<test output, review note, or artifact reference>`
 - **Risks / limitations**: `<remaining risk or NONE>`
@@ -51,13 +52,13 @@ Markdown-only handoff record shared by User, ChatWeb, Native Codex, and Antigrav
 
 `META.STATE` must contain exactly one of:
 
-`CREATED` · `READY` · `EXECUTING` · `VERIFYING` · `COMPLETED` · `FAILED`
+`CREATED` · `SUBMITTED` · `RUNNING` · `ARTIFACT_READY` · `VERIFIED` · `CLOSED`
 
 Normal progression:
 
-`CREATED -> READY -> EXECUTING -> VERIFYING -> COMPLETED`
+`CREATED -> SUBMITTED -> RUNNING -> ARTIFACT_READY -> VERIFIED -> CLOSED`
 
-Any active state may become `FAILED` when execution is blocked or verification fails. A failed handoff is terminal until a new handoff is created.
+Validation outcome (`PASS`, `FAIL`, `BLOCKED`, `UNVERIFIED`) is recorded under `TEST` and `EVIDENCE`, kept strictly separate from lifecycle state.
 
 ## Provider boundaries
 

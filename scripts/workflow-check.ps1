@@ -26,10 +26,24 @@ if (-not (Test-Path -LiteralPath $RepoPath -PathType Container)) {
 $resolvedPath = (Resolve-Path -LiteralPath $RepoPath).Path
 $repoRoot = $resolvedPath
 
-# Resolve repository root: if invoked from within scripts/ directory, navigate up to repo root
-if (-not (Test-Path -LiteralPath (Join-Path $repoRoot "core"))) {
-    if ((Split-Path $repoRoot -Leaf) -eq 'scripts' -and (Test-Path -LiteralPath (Join-Path $repoRoot "..\core"))) {
-        $repoRoot = (Resolve-Path -LiteralPath (Join-Path $repoRoot "..")).Path
+# Resolve repository root: if invoked from within a subfolder, navigate up to repo root
+$curr = $resolvedPath
+while ($curr -and -not (Test-Path -LiteralPath (Join-Path $curr "core") -PathType Container)) {
+    $parent = Split-Path -Parent $curr
+    if ($parent -eq $curr -or [string]::IsNullOrWhiteSpace($parent)) { break }
+    $curr = $parent
+}
+if (Test-Path -LiteralPath (Join-Path $curr "core") -PathType Container) {
+    $repoRoot = (Resolve-Path -LiteralPath $curr).Path
+} else {
+    try {
+        $gitRoot = (& git -C $resolvedPath rev-parse --show-toplevel 2>$null).Trim()
+        if ($gitRoot -and (Test-Path -LiteralPath (Join-Path $gitRoot "core") -PathType Container)) {
+            $repoRoot = (Resolve-Path -LiteralPath $gitRoot).Path
+        }
+    } catch {}
+    if (-not (Test-Path -LiteralPath (Join-Path $repoRoot "core") -PathType Container) -and $PSScriptRoot -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot "..\core") -PathType Container)) {
+        $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
     }
 }
 

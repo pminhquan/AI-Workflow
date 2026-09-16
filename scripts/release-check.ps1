@@ -117,6 +117,11 @@ if (-not $isGit) {
     $sourceFailures.Add("Directory is not a Git repository: $resolvedPath")
     Write-Host "[-] Git Repository: NOT A GIT REPOSITORY"
 } else {
+    $gitRoot = (& git -C $resolvedPath rev-parse --show-toplevel 2>$null).Trim()
+    if ($gitRoot) {
+        $resolvedPath = (Resolve-Path -LiteralPath $gitRoot).Path
+    }
+
     # Get current branch with exit code validation
     $branchOut = @(& git -C $resolvedPath rev-parse --abbrev-ref HEAD 2>&1)
     if ($LASTEXITCODE -ne 0) {

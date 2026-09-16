@@ -63,6 +63,11 @@ if (-not $isGit) {
     exit 1
 }
 
+$gitRoot = (& git -C $resolvedPath rev-parse --show-toplevel 2>$null).Trim()
+if ($gitRoot) {
+    $resolvedPath = (Resolve-Path -LiteralPath $gitRoot).Path
+}
+
 # 4. Get list of changed files from git status
 $rawStatus = & git -C $resolvedPath status --porcelain
 $changedFiles = @()
